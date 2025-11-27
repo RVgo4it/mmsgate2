@@ -1,0 +1,110 @@
+# syntax=docker/dockerfile:1
+
+# This builds a MMSgate image from the OpenSIPS installed image
+FROM	opensips
+
+LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+USER	root
+WORKDIR	/root
+
+# install needed apps
+RUN	apt -y update && \
+	apt install -y python3-multipart \
+        curl \
+	netcat-openbsd \
+	net-tools \
+	tor \
+        nano \
+	cron \
+	jq \
+	gunicorn \
+	dumb-init \
+	nginx \
+	lego \
+	python3-multipart \
+	python3-requests \
+	python3-qrcode \
+	python3-prettytable \
+	python3-wtforms \
+	traceroute \
+	rsyslog \
+	iputils-tracepath \
+	dnsutils
+
+# Configure user mmsgate, a little sudo
+RUN	useradd -ms /bin/bash mmsgate && \
+	echo 'mmsgate:notnot' | chpasswd && \
+        echo 'mmsgate ALL=(ALL) NOPASSWD:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh', /scripts/fwtestviator.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh >> /etc/sudoers
+
+# Configure user opensips, no sudo
+RUN	useradd -ms /bin/bash opensips && \
+	echo 'opensips:notnot' | chpasswd
+
+# Configure user mmsgateadm, with sudo
+RUN     useradd -ms /bin/bash mmsgateadm && \
+        echo 'mmsgateadm:notnot' | chpasswd && \
+        echo 'mmsgateadm ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+COPY	--chown=root --chmod=755 mmsgate2/scripts/* /scripts/
+COPY	--chown=root --chmod=755 mmsgate2/globalcfg.txt mmsgate2/globalcfg.sh mmsgate2/opensips.cfg /etc/opensips/
+
+# have cron run preprocchk.sh every 10 minutes, dynudnschk.sh 5 minutes after that, and certs.sh twice a day at random time.
+# also, clean up media files (not xml config) over 90 days old once a day, 3 am
+# and clean up messages from over 30 days ago, sundays at 3:30 am
+# reconcile messages daily at 3:35 am
+# finally compact the databases sundays at 3:45 am and 3:55 am
+RUN	echo 'SHELL=/bin/bash' | crontab - && \
+	{ crontab -l; echo '*/10 * * * * . /etc/profile; /scripts/preprocchk.sh'; } | crontab - && \
+	{ crontab -l; echo '*/10 * * * * . /etc/profile; sleep 300; /scripts/dynudnschk.sh'; } | crontab - && \
+	{ crontab -l; SLEEPTIME=$(perl -e 'print int(rand(43200))'); echo "0 */12 * * * sleep $SLEEPTIME; /scripts/certs.sh renew"; } | crontab - && \
+	{ crontab -l; echo '0 3 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'*.xml'"'"' -delete'; } | crontab - && \
+	{ crontab -l; echo '30 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
+	{ crontab -l; echo '35 3 * * * . /etc/opensips/globalcfg.sh; /scripts/mmsreconcile.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM"'; } | crontab - && \
+	{ crontab -l; echo '45 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
+	{ crontab -l; echo '55 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
+
+# setup log files for opensips and mmsgate
+RUN	echo 'local7.*        /var/log/opensips.log' > /etc/rsyslog.d/40-opensips.conf && \
+	echo 'local7.*        stop' >> /etc/rsyslog.d/40-opensips.conf && \
+	echo 'local6.*        /var/log/mmsgate.log' > /etc/rsyslog.d/41-mmsgate.conf && \
+	echo 'local6.*        stop' >> /etc/rsyslog.d/41-mmsgate.conf && \
+	echo 'local5.*        /var/log/gunicorn.log' > /etc/rsyslog.d/42-gunicorn.conf && \
+	echo 'local5.*        stop' >> /etc/rsyslog.d/42-gunicorn.conf
+
+# setup log rotates.  includes opensips.log, mmsgate.log and nginx files and HUB/USR1 signal to reopen
+RUN	sed --in-place 's_/var/log/syslog_/var/log/syslog\n/var/log/gunicorn.log\n/var/log/mmsgate.log\n/var/log/opensips.log_' /etc/logrotate.d/rsyslog && \
+	sed --in-place 's_rsyslog-rotate_rsyslog-rotate\n\t\t/bin/kill -HUP $(cat /var/run/rsyslogd.pid)_' /etc/logrotate.d/rsyslog && \
+	sed --in-place 's_invoke-rc.d nginx rotate_invoke-rc.d nginx rotate >/dev/null 2>&1\n\t\t/bin/kill -USR1 $(cat /var/run/nginx.pid)_' /etc/logrotate.d/nginx
+
+# need some data folders
+RUN	mkdir -m=777 /data /data/mmsmedia /data/mmsgate /data/opensips
+# setup Nginx, new config location, no default site and bump up hash bucket
+RUN	sed 's/\/etc\/nginx/\/etc\/opensips\/nginx/' -i /etc/nginx/nginx.conf && \
+	sed 's/# server_names_hash_bucket_size/server_names_hash_bucket_size/' -i /etc/nginx/nginx.conf && \
+	mv /etc/nginx /etc/opensips/ && \
+	rm /etc/opensips/nginx/sites-enabled/default && \
+	echo -n 'admin:' >> /etc/opensips/nginx/.htpasswd && \
+	openssl passwd -apr1 madman12 >> /etc/opensips/nginx/.htpasswd
+COPY	--chown=root --chmod=755 mmsgate2/admin /etc/opensips/nginx/sites-available/
+RUN	ln -fs /etc/opensips/nginx/sites-available/admin /etc/opensips/nginx/sites-enabled/admin
+
+# setup group for shared db access
+RUN	addgroup db && \
+	adduser mmsgateadm db && \
+	adduser mmsgate db && \
+	adduser opensips db && \
+	chown root:db /data/mmsgate && \
+	chmod g+s /data/mmsgate
+
+USER    mmsgateadm
+WORKDIR /home/mmsgateadm
+
+# Generate the default config file
+RUN	sudo /scripts/mmsgate.py --default-config | sudo tee /etc/opensips/mmsgate.conf && \
+	sudo chmod a+r /etc/opensips/*
+
+# Startup config
+ENTRYPOINT	["/usr/bin/dumb-init", "--"]
+CMD	["/scripts/init.sh"]
+

@@ -1,0 +1,167 @@
+# syntax=docker/dockerfile:1
+
+# This is for building opensips
+FROM    ubuntu:24.04 AS build
+
+LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+# Update and install dev env for opensips
+RUN     apt -y update && \
+        # Install common tools
+        apt -y install sudo \
+        vim \
+        wget \
+        file \
+        # Install development tools
+        make \
+        bison \
+        flex \
+        curl \
+        libcurl4t64 \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        dpkg-dev \
+        debhelper \
+        libevent-dev \
+        libcurl4-openssl-dev \
+        libglib2.0-dev \
+        libhiredis-dev \
+        libpcre3-dev \
+        libssl-dev \
+        libxmlrpc-core-c3-dev \
+        markdown \
+        zlib1g-dev \
+        module-assistant \
+        dkms \
+        gettext \
+        libavcodec-dev \
+        libavfilter-dev \
+        libavformat-dev \
+        libjson-glib-dev \
+        libpcap-dev \
+        nfs-common \
+        libbencode-perl \
+        libcrypt-rijndael-perl \
+        libdigest-hmac-perl \
+        libio-socket-inet6-perl \
+        libsocket6-perl \
+        libmysqlclient-dev \
+        libconfuse-dev \
+        libdb-dev \
+        libexpat1-dev \
+        libmaxminddb-dev \
+        libjson-c-dev \
+        librdkafka-dev \
+        libldap2-dev \
+        liblua5.1-0-dev \
+        libmemcached-dev \
+        libmicrohttpd-dev \
+        libncurses5-dev \
+        libperl-dev \
+        libpq-dev \
+        librabbitmq-dev \
+        libradcli-dev \
+        libsctp-dev \
+        libsnmp-dev \
+        libsqlite3-dev \
+        libxml2-dev \
+        python-is-python3 \
+        python3-dev \
+        python-dev-is-python3 \
+        unixodbc-dev \
+        xsltproc \
+        git
+
+USER	root
+WORKDIR	/root
+
+# master or other releases
+ARG	BRANCH="3.6"
+RUN     git clone https://github.com/OpenSIPS/opensips.git --recursive -b ${BRANCH} ~/opensips
+
+# modules
+ARG	MODS="tls_wolfssl db_sqlite tls_openssl tls_mgm proto_tls sqlops presence xcap presence_xml json rest_client xml"
+RUN	echo Make modules: ${MODS}
+RUN	cd ~/opensips && \
+	make clean && \
+	ln -s /root/opensips/modules/tls_wolfssl/lib/wolfssl /root/opensips/modules/tls_wolfssl/lib/include && \
+	mkdir /root/inst && \
+	mkdir /root/inst/lib && \
+	mkdir /root/inst/lib64 && \
+	make prefix=/ include_modules="${MODS}" all && \
+	make prefix=/ basedir=/root/inst include_modules="${MODS}" install
+
+# This is for compiling opensips-cli
+FROM	ubuntu:24.04 AS compile-image
+
+LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+USER	root
+WORKDIR	/root
+
+# Set Environment Variables
+ENV	DEBIAN_FRONTEND=noninteractive
+
+# Update and install dev env for opensips
+RUN	apt update && \
+	apt install -y git libffi-dev python3-setuptools python3-dev python3-full default-libmysqlclient-dev gcc
+
+# Make virtual python env for opensips-cli
+RUN	python3 -m venv /opt/venv
+
+# Make sure we use the virtual env.
+ENV	PATH="/opt/venv/bin:$PATH"
+
+RUN	git clone https://github.com/OpenSIPS/opensips-cli.git /usr/src/opensips-cli
+
+COPY	mmsgate2/tls-patch/hashes.txt mmsgate2/tls-patch/tls.patch ./
+
+RUN	if md5sum --check hashes.txt; then patch /usr/src/opensips-cli/opensipscli/modules/tls.py <tls.patch; else echo Skipping patch; fi
+
+RUN	cd /usr/src/opensips-cli && \
+	pip3 install . && \
+	pip3 install cryptography && \
+	rm -rf /usr/src/opensips-cli
+
+# This is the final image
+FROM    ubuntu:24.04
+
+LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+# Update and install items needed for opensips
+RUN     apt -y update && \
+        # Install common tools
+        apt -y install sudo \
+        iputils-ping \
+        iproute2 \
+        sqlite3 \
+        # Install all dependencies
+        python3 \
+        libmysqlclient21
+
+        # Clean
+RUN     apt -y autoremove && \
+        apt -y clean
+
+# need sopts for opensips
+RUN     mkdir -m=755 /etc/opensips && \
+        mkdir -m=777 /run/opensips
+
+# bring over the python virtual env
+COPY	--from=compile-image /opt/venv /opt/venv
+ENV	PATH="/opt/venv/bin:$PATH"
+RUN	echo 'PATH=/opt/venv/bin:$PATH' >/etc/profile.d/opensips.sh
+
+# bring over opensips 
+COPY    --from=build /root/inst/etc/opensips/ /etc/opensips/
+COPY    --from=build /root/inst/sbin/ /sbin/
+COPY    --from=build /root/inst/lib64/ /lib64/
+COPY    --from=build /root/inst/lib/ /lib/
+COPY    --from=build /root/inst/share/ /share/
+
+# clean up
+RUN	rmdir /lib || rmdir /lib64
+
+USER	root
+WORKDIR	/root
+CMD	["bash"]

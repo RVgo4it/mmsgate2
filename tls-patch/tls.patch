@@ -1,0 +1,42 @@
+--- ./opensips-cli/opensipscli/modules/tls.py	2025-03-05 08:51:56.526195079 -0500
++++ tls.py	2025-03-05 08:57:49.478376212 -0500
+@@ -135,7 +135,7 @@
+         builder = builder.not_valid_after(datetime.datetime.today() +
+                                           datetime.timedelta(0, self.notafter))
+         builder = builder.add_extension(
+-                x509.BasicConstraints(ca=False, path_length=None),
++                x509.BasicConstraints(ca=True, path_length=None),
+                 critical=False
+         )
+         builder = builder.add_extension(
+@@ -151,11 +151,13 @@
+         self.cert = x509.load_pem_x509_certificate(open(cacert, 'rb').read())
+ 
+     def sign(self, key):
+-        self.builder = self.builder.public_key(key.key.public_key())
+         self.cert = self.builder.sign(private_key = key.key,
+                                       algorithm=getattr(hashes, self.md)(),
+                                       backend=default_backend())
+ 
++    def set_publickey(self, key):
++        self.builder = self.builder.public_key(key.key.public_key())
++
+     def set_issuer(self, issuer):
+         self.builder = self.builder.issuer_name(issuer)
+ 
+@@ -237,6 +239,7 @@
+             key = tlsCryptographyKey("ca", cfg)
+ 
+         cert.set_issuer(cert.get_subject())
++        cert.set_publickey(key)
+         cert.sign(key)
+ 
+         try:
+@@ -317,6 +320,7 @@
+             key = tlsCryptographyKey("user", cfg)
+ 
+         cert.set_issuer(ca_cert.get_subject())
++        cert.set_publickey(key)
+         cert.sign(ca_key)
+         try:
+             if not exists(dirname(c_f)):
