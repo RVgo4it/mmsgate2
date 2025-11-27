@@ -160,7 +160,7 @@ COPY    --from=build /root/inst/lib/ /lib/
 COPY    --from=build /root/inst/share/ /share/
 
 # clean up
-RUN	rmdir /lib || rmdir /lib64
+RUN	rmdir /lib || rmdir /lib64; echo ok
 
 USER	root
 WORKDIR	/root
