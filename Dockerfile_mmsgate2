@@ -80,13 +80,15 @@ RUN	sed --in-place 's_/var/log/syslog_/var/log/syslog\n/var/log/gunicorn.log\n/v
 
 # need some data folders
 RUN	mkdir -m=777 /data /data/mmsmedia /data/mmsgate /data/opensips
+
 # setup Nginx, new config location, no default site and bump up hash bucket
+ARG	ADMPW="apple99"
 RUN	sed 's/\/etc\/nginx/\/etc\/opensips\/nginx/' -i /etc/nginx/nginx.conf && \
 	sed 's/# server_names_hash_bucket_size/server_names_hash_bucket_size/' -i /etc/nginx/nginx.conf && \
 	mv /etc/nginx /etc/opensips/ && \
 	rm /etc/opensips/nginx/sites-enabled/default && \
 	echo -n 'admin:' >> /etc/opensips/nginx/.htpasswd && \
-	openssl passwd -apr1 madman12 >> /etc/opensips/nginx/.htpasswd
+	openssl passwd -apr1 ${ADMPW} >> /etc/opensips/nginx/.htpasswd
 COPY	--chown=root --chmod=755 mmsgate2/admin /etc/opensips/nginx/sites-available/
 RUN	ln -fs /etc/opensips/nginx/sites-available/admin /etc/opensips/nginx/sites-enabled/admin
 

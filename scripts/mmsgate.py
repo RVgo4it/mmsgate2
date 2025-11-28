@@ -11,6 +11,7 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.3 11/27/2025 Extra security for admin page
 # v1.0.2 11/27/2025 Minor fixes in wizard and Voip.ms sub acct admin
 # v1.0.1 11/26/2025 Switched to OpenSIPS v3.6, added check in FW test and added OpenSIPS auto_scaling_profile
 # v1.0.0 11/19/2025 Major rewrite for OpenSIPS and Push Notification via linphone.org
@@ -1987,7 +1988,7 @@ class config_class:
         "webbind": "0.0.0.0",
         "webport": "38443",
         "protocol": "https",
-        "bindoverride": "0.0.0.0:38080",
+        "bindoverride": "127.0.0.1:38080",
         "pathget": "/mmsmedia",
         "pathfile": "/file",
         "pathadmin": "/admin",
