@@ -11,6 +11,7 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.4 11/28/2025 Bug fix in wizard
 # v1.0.3 11/27/2025 Extra security for admin page
 # v1.0.2 11/27/2025 Minor fixes in wizard and Voip.ms sub acct admin
 # v1.0.1 11/26/2025 Switched to OpenSIPS v3.6, added check in FW test and added OpenSIPS auto_scaling_profile
@@ -1176,7 +1177,7 @@ function setCaretToPos(input, pos) {
                                 rtradm=""
                                 # try 6 times...
                                 for i in range(5):
-                                    sp = subprocess.run(["traceroute","-m","1","google.com"],capture_output=True)
+                                    sp = subprocess.run(["traceroute","-n","-m","1","google.com"],capture_output=True)
                                     _logger.debug(str(("traceroute() ret:",sp)))
                                     for line in sp.stdout.decode("utf-8").split("\n"):
                                         cols=line.split()
@@ -1188,7 +1189,8 @@ function setCaretToPos(input, pos) {
                                                     rtradm += "https://"+cols[1]+" or " if lynx else "<a href='https://"+cols[1]+"' target='_blank'>https://"+cols[1]+"</a> or "
                                                 # got some, so we are done
                                                 break
-                                            time.sleep(1)
+                                    if rtradm != "": break
+                                    time.sleep(1)
                                 msg += ("Login to your local router using your web browser.  It may be one of these addresses: "+rtradm+"some other address provided to you.  " +
                                   ("Depending on the SSH client software you are using, the address may be click-able while holding a key like Ctrl or Alt.  " if lynx else "") +
                                   "If you have trouble and you purchased your router, perform an internet search of the make and model of the router.  If your router was provided by your ISP, " +
