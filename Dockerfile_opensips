@@ -154,13 +154,10 @@ RUN	echo 'PATH=/opt/venv/bin:$PATH' >/etc/profile.d/opensips.sh
 
 # bring over opensips 
 COPY    --from=build /root/inst/etc/opensips/ /etc/opensips/
-COPY    --from=build /root/inst/sbin/ /sbin/
-COPY    --from=build /root/inst/lib64/ /lib64/
-COPY    --from=build /root/inst/lib/ /lib/
-COPY    --from=build /root/inst/share/ /share/
-
-# clean up
-RUN	rmdir /lib || rmdir /lib64; echo ok
+COPY    --from=build /root/inst/sbin/ /usr/sbin/
+COPY    --from=build /root/inst/lib64/ /usr/lib64/
+COPY    --from=build /root/inst/lib/ /usr/lib/
+COPY    --from=build /root/inst/share/ /usr/share/
 
 USER	root
 WORKDIR	/root

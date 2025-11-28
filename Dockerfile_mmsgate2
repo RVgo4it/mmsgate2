@@ -21,6 +21,7 @@ RUN	apt -y update && \
 	gunicorn \
 	dumb-init \
 	nginx \
+	lynx \
 	lego \
 	python3-multipart \
 	python3-requests \
