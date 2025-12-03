@@ -10,6 +10,7 @@ WORKDIR	/root
 
 # install needed apps
 RUN	apt -y update && \
+	apt -y upgrade && \
 	apt install -y python3-multipart \
         curl \
 	netcat-openbsd \
@@ -22,7 +23,6 @@ RUN	apt -y update && \
 	dumb-init \
 	nginx \
 	lynx \
-	lego \
 	python3-multipart \
 	python3-requests \
 	python3-qrcode \
@@ -32,6 +32,37 @@ RUN	apt -y update && \
 	rsyslog \
 	iputils-tracepath \
 	dnsutils
+
+# Download and install LEGO
+SHELL	["/bin/bash", "-c"]
+ARG	LEGO_VER=4.28.1
+RUN	LEGOVER=$LEGO_VER && \
+	curl -L -o lego_${LEGOVER}_checksums.txt https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_${LEGOVER}_checksums.txt && \
+	LEGOARCH=$(uname -m) && \
+	echo uname $LEGOARCH && \
+	if [[ "$LEGOARCH" == x86_64* ]]; then \
+	  LEGOARCH=amd64; \
+	elif [[ "$LEGOARCH" == "i386" || "$LEGOARCH" == "i686" ]]; then \
+	  LEGOARCH=386; \
+	elif [[ "$LEGOARCH" == aarch64* || "$LEGOARCH" == armv8* ]]; then \
+	 LEGOARCH=arm64; \
+	elif [[ "$LEGOARCH" == armv7l* ]]; then \
+	  LEGOARCH=armv7; \
+	elif [[ "$LEGOARCH" == armv6l* ]]; then \
+	  LEGOARCH=armv6; \
+	elif [[ "$LEGOARCH" == armv5l* ]]; then \
+	  LEGOARCH=armv5; \
+	else \
+	  exit 1; \
+	fi && \
+	echo uname $LEGOARCH && \
+	curl -L -o lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz && \
+	SUM=$(sha256sum lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz)  && \
+	grep "$SUM" lego_${LEGOVER}_checksums.txt && \
+	tar -xvzf lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz && \
+	sudo mv lego /bin/lego && \
+	rm * && \
+	lego -v
 
 # Configure user mmsgate, a little sudo
 RUN	useradd -ms /bin/bash mmsgate && \

@@ -14,7 +14,7 @@ source /etc/opensips/globalcfg.sh
 if [ ! -e $DBPATH ]; then
   # create db
   log "Creating database $DBPATH"
-  opensips-cli -o database_url=sqlite:// -o "database_modules=usrloc msilo presence tls_mgm" -o database_schema_path=/share/opensips -x database create $DBPATH
+  opensips-cli -o database_url=sqlite:// -o "database_modules=usrloc msilo presence tls_mgm" -o database_schema_path=/usr/share/opensips -x database create $DBPATH
   chmod 770 $DBPATH
   chown opensips:mmsgateadm $DBPATH
 else

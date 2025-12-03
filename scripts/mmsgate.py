@@ -11,6 +11,8 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.6 12/3/2025 Added fix for /admin password and 32 vs 64 /usr
+# v1.0.5 12/2/2025 Added more Windows support
 # v1.0.4 11/28/2025 Bug fix in wizard
 # v1.0.3 11/27/2025 Extra security for admin page
 # v1.0.2 11/27/2025 Minor fixes in wizard and Voip.ms sub acct admin
@@ -1165,7 +1167,13 @@ function setCaretToPos(input, pos) {
                             class WizForm(MainForm):
                                 IP4_local_address = StringField(render_kw={'readonly':''})
                                 IP4_external_address = StringField(render_kw={'readonly':''})
-                            qs["IP4_local_address"] = ipaddr["ipv4"]["local"]
+                            if os.system("ping -c 1 host.docker.internal") != 0:
+                                qs["IP4_local_address"] = ipaddr["ipv4"]["local"]
+                            else:
+                                qs["IP4_local_address"] = "Unknown"
+                                msg += b"WARNING: Windows host detected.  MMSGate cannot determine the host IP address or the router IP address.  " +
+                                    "Open a command prompt on the Windows host and type 'ipconfig /all'.  Make note of the IPv4 Address and the Physical Address (i.e. mac).  " +
+                                    "Ignote the WSL or Hyper-V Ethernet adapter.<br>"
                             qs["IP4_external_address"] = ipaddr["ipv4"]["public"]
                             # no NAT?
                             if ipaddr["ipv4"]["local"] == ipaddr["ipv4"]["public"]:
@@ -1198,6 +1206,9 @@ function setCaretToPos(input, pos) {
                         # dhcp reserve/static
                         case 3:
                             ipaddr=get_ip()
+                            if os.system("ping -c 1 host.docker.internal") == 0:
+                                ipaddr["ipv4"]["mac"] = "(unknown)"
+                                ipaddr["ipv4"]["local"] = "(unknown)"
                             msg += ("In your router, you should reserve this host's IPv4 address "+ipaddr["ipv4"]["local"]+" so it will not change.  "+
                               "It is associated with the MAC address "+ipaddr["ipv4"]["mac"]+" of this host.  In most routers, it is in the DHCP section and called \"static\" or \"reserved\".  "+
                               "If the IP address is not properly reserved, the router may assign this host a different IPv4 address after the next power cycle.  That would cause issues with IPv4.  "+
@@ -1207,7 +1218,9 @@ function setCaretToPos(input, pos) {
                         # port forward
                         case 4:
                             ipaddr=get_ip()
-                            msg += ("In your router, you need to configure IPv4 port forwarding.  The router needs to forward IPv4 TCP/IP packets from the Internet to this serve's local IPv4 address "+
+                            if os.system("ping -c 1 host.docker.internal") == 0:
+                                ipaddr["ipv4"]["local"] = "(unknown)"
+                            msg += ("In your router, you need to configure IPv4 port forwarding.  The router needs to forward IPv4 TCP/IP packets from the Internet to this host's local IPv4 address "+
                               ipaddr["ipv4"]["local"]+".  Two TCP ports are needed, 5061 and 38443.  The port forward settings are usually in the firewall or advanced section of the router settings.  "+
                               "If you have trouble and you purchased your router, perform an internet search of the make and model of the router.  If your router was provided by your ISP, "+
                               "try contacting them for support.  Select \"Next\" once done.").encode('utf_8')
