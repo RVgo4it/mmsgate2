@@ -20,8 +20,8 @@ log() {
   echo "$1" | logger -p local6.1 -t $SCR
 }
 
-if [ "$1" == "" ]; then
-  log "Missing args.  Args are ip:port [...].  For IPv6, [ip]:port.  -d for debug.  "
+if [[ "$1" == "" || "$HTTP_PROXY" == "" ]]; then
+  log "Missing args.  Args are ip:port [...].  For IPv6, [ip]:port.  -d for debug.  Env var HTTP_PROXY required."
   exit 1
 fi
 
@@ -33,14 +33,8 @@ fi
 
 if pgrep -x opensips; then log "OpenSIPS is running.  Please stop it and try again."; exit 1; fi
 
-[ $DBG ] || TOROPT=--quiet
-
 [ $DBG ] && log "Configuring Nginx for test"
 
-#cp $LOCUSERDIR/$LOCUSERCERT $LOCUSERDIR/fullchain-$LOCUSERCERT
-#cat $LOCUSERDIR/$LOCUSERCALIST | tee -a $LOCUSERDIR/fullchain-$LOCUSERCERT > /dev/null
-
-#NGINXSITES=/etc/opensips/nginx/sites-enabled
 NGINXSITES=/etc/opensips/nginx/sites-available
 NGINXSITESENABLED=/etc/opensips/nginx/sites-enabled
 
@@ -80,59 +74,64 @@ else
   exit 1
 fi
 
-# need tor
-
-[ $DBG ] && log "Starting tor..."
-runuser -u mmsgate -- tor $TOROPT &
-TORPID=$!
-
 # get local/public IPs
 . /scripts/getaddr.sh
 
-# wait for tor to be up
-TOR=DOWN
-sleep 3
-for i in {0..30}; do
-  [ $DBG ] && log "Checking tor up?"
-#  TORRMTIP=$(curl -s --socks5-hostname 127.0.0.1:9050 https://icanhazip.com) && TOR=UP
-  nc -zv -x 127.0.0.1:9050 icanhazip.com 80 && TOR=UP
-  [ $DBG ] && log "Tor is $TOR"
-  [ $TOR == UP ] && break
-  sleep 1
-done
-
-if [ $TOR != UP ]; then
-  log "Tor did not come up in time.  Exiting..."
-  kill -TERM $TORPID
-  exit 1
+GOODPROXY=N
+# check if passed proxy works
+if PROXYIP=$(curl -s -4 --max-time 10 --proxy $HTTP_PROXY http://icanhazip.com); then
+  log "Proxy $HTTP_PROXY is using IP $PROXYIP"
+  GOODPROXY=Y
+else
+  log "Proxy $HTTP_PROXY failed connecting to icanhazip.com.  Will try alts from pubproxy.com."
+  for CNT in {0..10}; do
+    [ $DBG ] && log "Try $CNT for proxy HTTP_PROXY via pubproxy.com."
+    if PROXYJSON=$(curl -s http://pubproxy.com/api/proxy?country=US,CA); then
+      if HTTP_PROXY=$(echo $PROXYJSON|jq -r .data[0].ipPort); then
+        HTTP_PROXY=$(echo $PROXYJSON|jq -r .data[0].type)://$HTTP_PROXY
+        log "HTTP_PROXY = $HTTP_PROXY"
+        if PROXYIP=$(curl -s -4 --max-time 10 --proxy $HTTP_PROXY http://icanhazip.com); then
+          log "Proxy $HTTP_PROXY is using IP $PROXYIP"
+          GOODPROXY=Y
+          break
+        else
+          log "Proxy $HTTP_PROXY failed connecting to icanhazip.com.  Will try again..."
+        fi
+      else
+        log "Failed to get valid IP from pubproxy.com.  Will try again..."
+        log "PROXYJSON=$PROXYJSON"
+      fi
+    else
+      log "Failed connecting to pubproxy.com.  Will try again..."
+    fi
+    sleep 2
+  done
 fi
 
-TORRMTIP=$(curl -s --socks5-hostname 127.0.0.1:9050 https://icanhazip.com)
-[ $DBG ] && log "Tor started and using IP $TORRMTIP"
+if [ "$GOODPROXY" == "N" ]; then
+  log "Failed confirming working proxy.  Exiting."
+  exit 1
+fi
 
 ALLOK=Y
 while [ "$1" != "" ]; do
   [[ $1 =~ "-" ]] && { shift; continue; }
-  log "Checking remote access to http://$1"
-  if RET=$(curl -k -s --socks5-hostname 127.0.0.1:9050 http://$1/testing/); then
-    log "Remote access success for http://$1 !!!"
+  log "Checking remote access to http://$1 via proxy $HTTP_PROXY."
+  if RET=$(curl -k -s --proxy $HTTP_PROXY http://$1/testing/) && [[ "$RET" == "ok!" ]]; then
+    log "Remote access success for http://$1 !!! Returned $RET"
   else
     ALLOK=N
-    [[ $1 =~ "[" ]] && log "Failure for http://$1...  Check the firewall setting for the port." || log "Failure for http://$1...  Check IPv4 port forwarding to host on the router."
+    [[ $1 =~ "[" ]] && log "Failure for http://$1...  Check the firewall setting for the port." || log "Failure for http://$1...  Check IPv4 port forwarding setting in the router."
   fi
   log "Checking local access to http://$1"
-  if RET=$(curl -k -s http://$1/testing/); then
-    log "Local access success for http://$1 !!!"
+  if RET=$(curl -k -s http://$1/testing/) && [[ "$RET" == "ok!" ]]; then
+    log "Local access success for http://$1 !!! Returned $RET"
   else
     ALLOK=N
-    log "Failure for http://$1...  Check NAT Loopback or Hairpin NAT settings."
+    log "Failure for http://$1...  Check NAT Loopback or Hairpin NAT settings in the router."
   fi
   shift
 done
-
-[ $DBG ] && log "Stopping tor"
-#kill $TORPID
-if pkill -x tor; then log "Tor stopped"; else log "Tor could not be stopped."; fi
 
 [ $DBG ] && log "Cleaning up Nginx config"
 rm $NGINXSITESENABLED/testing

@@ -44,8 +44,8 @@ fi
 if [ "$PUBIPV4" != "0.0.0.0" ]; then
     # no NAT router?
     if [ "$PUBIPV4" == "$LOCIPV4" ]; then
-#        SEDOPTS="$SEDOPTS s/socket=tls:0.0.0.0:5061/socket=tls:$LOCIPV4:5061/;"
-#        [ $DBG ] && log "Processing IPv4 $LOCIPV4:5061"
+        SEDOPTS="$SEDOPTS s/socket=tls:0.0.0.0:5061/socket=tls:$LOCIPV4:5061/;"
+        [ $DBG ] && log "Processing IPv4 $LOCIPV4:5061"
     else
         SEDOPTS="$SEDOPTS s/socket=tls:0.0.0.0:5061/socket=tls:0.0.0.0:5061\ as\ $PUBIPV4:5061/;"
         [ $DBG ] && log "Processing IPv4 0.0.0.0:5061 as $PUBIPV4:5061"

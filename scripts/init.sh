@@ -36,6 +36,12 @@ while [ "$1" != "" ]; do
   shift
 done
 
+# check for arm32 - opensips bug w/ F_MALLOC
+ARCH=$(uname -m)
+if [[ "$ARCH" == armv7l* ]]; then
+  OPENSIPSOPTS="$OPENSIPSOPTS -a Q_MALLOC"
+fi
+
 # start opensips
 { DONE=NO
   # catch signal sent from parent process
@@ -108,6 +114,8 @@ sudo -i rsyslogd
 [ $DBG ] && log "Starting cron"
 sudo -i cron
 # start nginx web service
+[ $DBG ] && log "Config CPUs for Nginx"
+sudo NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE=1 /scripts/30-tune-worker-processes.sh
 [ $DBG ] && log "Starting Nginx"
 sudo nginx -c /etc/opensips/nginx/nginx.conf
 

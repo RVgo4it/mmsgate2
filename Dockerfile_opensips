@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
+ARG	UBUNTUVER="25.10"
 # This is for building opensips
-FROM    ubuntu:25.10 AS build
+FROM    ubuntu:$UBUNTUVER AS build
 
 LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
 
@@ -92,7 +93,7 @@ RUN	cd ~/opensips && \
 	make prefix=/ basedir=/root/inst include_modules="${MODS}" install
 
 # This is for compiling opensips-cli
-FROM	ubuntu:25.10 AS compile-image
+FROM	ubuntu:$UBUNTUVER AS compile-image
 
 LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
 
@@ -124,7 +125,7 @@ RUN	cd /usr/src/opensips-cli && \
 	rm -rf /usr/src/opensips-cli
 
 # This is the final image
-FROM    ubuntu:25.10
+FROM    ubuntu:$UBUNTUVER
 
 LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
 

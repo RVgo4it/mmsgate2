@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # This builds a MMSgate image from the OpenSIPS installed image
-FROM	opensips
+FROM	rvgo4it/opensips
 
 LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
 
@@ -35,7 +35,7 @@ RUN	apt -y update && \
 
 # Download and install LEGO
 SHELL	["/bin/bash", "-c"]
-ARG	LEGO_VER=4.28.1
+ARG	LEGO_VER=4.30.1
 RUN	LEGOVER=$LEGO_VER && \
 	curl -L -o lego_${LEGOVER}_checksums.txt https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_${LEGOVER}_checksums.txt && \
 	LEGOARCH=$(uname -m) && \
@@ -67,7 +67,7 @@ RUN	LEGOVER=$LEGO_VER && \
 # Configure user mmsgate, a little sudo
 RUN	useradd -ms /bin/bash mmsgate && \
 	echo 'mmsgate:notnot' | chpasswd && \
-        echo 'mmsgate ALL=(ALL) NOPASSWD:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh', /scripts/fwtestviator.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh >> /etc/sudoers
+        echo 'mmsgate ALL=(ALL) NOPASSWD:SETENV:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh', /scripts/fwtestviator.sh, /scripts/fwtestviaproxy.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh >> /etc/sudoers
 
 # Configure user opensips, no sudo
 RUN	useradd -ms /bin/bash opensips && \
@@ -90,11 +90,11 @@ RUN	echo 'SHELL=/bin/bash' | crontab - && \
 	{ crontab -l; echo '*/10 * * * * . /etc/profile; /scripts/preprocchk.sh'; } | crontab - && \
 	{ crontab -l; echo '*/10 * * * * . /etc/profile; sleep 300; /scripts/dynudnschk.sh'; } | crontab - && \
 	{ crontab -l; SLEEPTIME=$(perl -e 'print int(rand(43200))'); echo "0 */12 * * * sleep $SLEEPTIME; /scripts/certs.sh renew"; } | crontab - && \
-	{ crontab -l; echo '0 3 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'*.xml'"'"' -delete'; } | crontab - && \
-	{ crontab -l; echo '30 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
-	{ crontab -l; echo '35 3 * * * . /etc/opensips/globalcfg.sh; /scripts/mmsreconcile.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM"'; } | crontab - && \
-	{ crontab -l; echo '45 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
-	{ crontab -l; echo '55 3 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
+	{ crontab -l; echo '0 2 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'*.xml'"'"' -delete'; } | crontab - && \
+	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
+	{ crontab -l; echo '35 2 * * * . /etc/opensips/globalcfg.sh; /scripts/mmsreconcile.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM"'; } | crontab - && \
+	{ crontab -l; echo '45 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
+	{ crontab -l; echo '55 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
 
 # setup log files for opensips and mmsgate
 RUN	echo 'local7.*        /var/log/opensips.log' > /etc/rsyslog.d/40-opensips.conf && \
@@ -113,13 +113,15 @@ RUN	sed --in-place 's_/var/log/syslog_/var/log/syslog\n/var/log/gunicorn.log\n/v
 RUN	mkdir -m=777 /data /data/mmsmedia /data/mmsgate /data/opensips
 
 # setup Nginx, new config location, no default site and bump up hash bucket
-ARG	ADMPW="apple99"
+ARG	ADMPW="Apple99"
 RUN	sed 's/\/etc\/nginx/\/etc\/opensips\/nginx/' -i /etc/nginx/nginx.conf && \
 	sed 's/# server_names_hash_bucket_size/server_names_hash_bucket_size/' -i /etc/nginx/nginx.conf && \
 	mv /etc/nginx /etc/opensips/ && \
 	rm /etc/opensips/nginx/sites-enabled/default && \
+	ln -s /etc/opensips/nginx /etc && \
 	echo -n 'admin:' >> /etc/opensips/nginx/.htpasswd && \
-	openssl passwd -apr1 ${ADMPW} >> /etc/opensips/nginx/.htpasswd
+	openssl passwd -apr1 ${ADMPW} >> /etc/opensips/nginx/.htpasswd && \
+	chown mmsgate:mmsgate /etc/opensips/nginx/.htpasswd
 COPY	--chown=root --chmod=755 mmsgate2/admin /etc/opensips/nginx/sites-available/
 RUN	ln -fs /etc/opensips/nginx/sites-available/admin /etc/opensips/nginx/sites-enabled/admin
 
@@ -131,14 +133,15 @@ RUN	addgroup db && \
 	chown root:db /data/mmsgate && \
 	chmod g+s /data/mmsgate
 
+# Generate the default config file
+RUN	/scripts/mmsgate.py --default-config > /etc/opensips/mmsgate.conf && \
+	chmod a+r /etc/opensips/*
+
 USER    mmsgateadm
 WORKDIR /home/mmsgateadm
-
-# Generate the default config file
-RUN	sudo /scripts/mmsgate.py --default-config | sudo tee /etc/opensips/mmsgate.conf && \
-	sudo chmod a+r /etc/opensips/*
 
 # Startup config
 ENTRYPOINT	["/usr/bin/dumb-init", "--"]
 CMD	["/scripts/init.sh"]
+EXPOSE	5061/tcp 38443/tcp 38000/tcp
 

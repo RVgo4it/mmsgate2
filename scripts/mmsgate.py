@@ -11,6 +11,9 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.9 12/26/2025 Improved firewall testing in wazard
+# v1.0.8 12/24/2025 Minor bugs and wizard fixes.
+# v1.0.7 12/5/2025 Added password change for /admin and minor bugs
 # v1.0.6 12/3/2025 Added fix for /admin password and 32 vs 64 /usr
 # v1.0.5 12/2/2025 Added more Windows support
 # v1.0.4 11/28/2025 Bug fix in wizard
@@ -46,9 +49,17 @@ class web_class():
     # init for web class
     def __init__(self,ask_q,resp_q,loglvl_q):
         import multiprocessing
+        import subprocess
         # return calc for number of processes for gunicorn
         def number_of_workers():
-            return (multiprocessing.cpu_count() * 2) + 1
+            try:
+                # docker run --cpus is available via nproc cmd
+                result = subprocess.run(['nproc'], capture_output=True, text=True)
+                cores = int(result.stdout.strip())
+            except:
+                # fail over to cpu_count()
+                cores = multiprocessing.cpu_count()
+            return (cores * 2) + 1
         # prevents error message when worker ends
         def post_worker_init(worker):
             import atexit
@@ -261,7 +272,7 @@ class web_class():
                                 for mmsmsg in mms_msaages:
                                     self.ask_q.put_nowait(("MsgNew",payload["from"]["phone_number"],None,toid,None,mmsmsg,"IN",todid["phone_number"],"MMS",payload["id"]))
                     else:
-                        _logger.error("The DID "+todid["phone_number"]+" not found in API's did_accts.keys(): "+str(self.api.did_accts.keys()))
+                        _logger.warning("The DID "+todid["phone_number"]+" not found in API's did_accts.keys(): "+str(did_accts.keys()))
             # something very wrong
             except Exception as e:
                 PrintException(e)
@@ -443,6 +454,7 @@ class web_class():
                         ("Restart_Container","advmenu-restart"),
                         ("Set_Global_DEBUG","advmenu-setglobaldebug"),
                         ("Adjust_MMSGate_Log_Level","advmenu-setmmsgateloglevel"),
+                        ("Set_Admin_Password","advmenu-setadminpassword"),
                         ("Display_SQLite_data","advmenu-dumpdatabase"),
                         ("Display_Live_Logs","advmenu-displaylivelogs")]:
                         if f in qs.values(): qs["nextpage"] = m
@@ -574,6 +586,7 @@ class web_class():
 
         except Exception as e:
             PrintException(e)
+            _logger.error(str(("Admin wizard submitted form:",e)))
 
         try:
             # generate next form but ignore the -n on some forms like wizzard forms
@@ -709,6 +722,26 @@ class web_class():
                                 restart = BooleanField("Check to confirm restart and click Apply.")
                                 Apply = SubmitField()
                             qs["nextpage"] = "advmenu-restart"
+
+                        case "setadminpassword":
+                            if qs.get('Apply',"") == 'Apply':
+                                password1 = qs.get("adminpw",'')
+                                password2 = qs.get("readminpw",'')
+                                if password1 == '':
+                                    msg += b'Password cannot be blank.<br>'
+                                elif password1 == password2:
+                                    r = os.system('echo -n "admin:" > /etc/opensips/nginx/.htpasswd && openssl passwd -apr1 "'+password1+'" >> /etc/opensips/nginx/.htpasswd')
+                                    if r == 0:
+                                        msg += b'Password successfully changed.<br>'
+                                    else:
+                                        msg += b'Failed to change password.<br>'
+                                else:
+                                    msg += b'Password and confirmed password do not match.<br>'
+                            class AdvForm(MainForm):
+                                adminpw = PasswordField("Enter new admin password.")
+                                readminpw = PasswordField("Re-enter new admin password to confirm.")
+                                Apply = SubmitField()
+                            qs["nextpage"] = "advmenu-setadminpassword"
 
                         case "setmmsgateloglevel":
                             curlvlstr = "WARNING"
@@ -881,6 +914,7 @@ function setCaretToPos(input, pos) {
                             ("Restart_Container","Stop this container and if configured as such in Docker, restart it."),
                             ("Display_Live_Logs","Display live logs in real time.  (Not compatible with Lynx.)"),
                             ("Display_SQLite_data","Dump the database tables used for MMSGate."),
+                            ("Set_Admin_Password","Set the admin password for MMSGate."),
                             ("Exit","Return to main menu")]:
                             f = form.menu.append_entry({"select":b,"description":d})
                             f["description"].flags.justtxt = True
@@ -999,8 +1033,8 @@ function setCaretToPos(input, pos) {
                         linphone = StringField("Linphone account",render_kw={'readonly':''})
                         didcid = StringField("DID/CallerID",render_kw={'readonly':''})
                         diddesc = StringField("DID description",render_kw={'readonly':''})
-                        pophost = StringField("PoP host")
-                        popname = StringField("PoP name")
+                        pophost = StringField("PoP host",render_kw={'readonly':''})
+                        popname = StringField("PoP name",render_kw={'readonly':''})
 
                     qs["linphone"] = linuser
                     qs["didcid"] = cid
@@ -1156,7 +1190,7 @@ function setCaretToPos(input, pos) {
                     match n:
                         # intro for the wizzard
                         case 1:
-                            msg += ("This is the MMSGate Wizard.  It will help you configure the Docker container.  Select Cancel at any time to return to the previous page.  " +
+                            msg += ("This is the MMSGate Wizard.  It will help you configure the Docker container and local network.  Select Cancel at any time to return to the previous page.  " +
                               "Click \"Next\" to continue.  This will stop OpenSIPS and disable it." ).encode('utf_8')
                         # disable and stop opensips and config router/firewall
                         case 2:
@@ -1165,42 +1199,19 @@ function setCaretToPos(input, pos) {
                             ipaddr=get_ip()
                             _logger.debug(str(("get_ip() ret:",ipaddr)))
                             class WizForm(MainForm):
-                                IP4_local_address = StringField(render_kw={'readonly':''})
-                                IP4_external_address = StringField(render_kw={'readonly':''})
-                            if os.system("ping -c 1 host.docker.internal") != 0:
-                                qs["IP4_local_address"] = ipaddr["ipv4"]["local"]
-                            else:
-                                qs["IP4_local_address"] = "Unknown"
-                                msg += b"WARNING: Windows host detected.  MMSGate cannot determine the host IP address or the router IP address.  " +
-                                    "Open a command prompt on the Windows host and type 'ipconfig /all'.  Make note of the IPv4 Address and the Physical Address (i.e. mac).  " +
-                                    "Ignote the WSL or Hyper-V Ethernet adapter.<br>"
-                            qs["IP4_external_address"] = ipaddr["ipv4"]["public"]
+                                IPv4_external_address = StringField("IPv4 External Address",render_kw={'readonly':''})
+                            msg += (b"WARNING: MMSGate cannot determine the host IP address or the router IP address.  " +
+                                    b"For Windows, open a command prompt on the host and type 'ipconfig /all'. For Mac host, select Apple -> About this Mac ->System Report -> Network.  " +
+                                    b"For Linux, open a command prompt and type 'ip -4 addr' for IPv4 address and 'ip -0 addr' to find the Physical Address (i.e. MAC address).<br>" +
+                                    b"Make note of the IPv4 Address and the Physical Address (i.e. MAC address).<br>")
+                            qs["IPv4_external_address"] = ipaddr["ipv4"]["public"]
                             # no NAT?
                             if ipaddr["ipv4"]["local"] == ipaddr["ipv4"]["public"]:
                                 msg += ("Direct connection to the Internet was detected.  No NAT router configuration needed.  However, two TCP ports are needed, 5061 and 38443.  "+
                                   "Please make sure any firewalls allow the needed ports through.  Select \"Next\" to continue.").encode('utf_8')
                                 qs["nextpage"] = "wizmenu-" + str(5)
                             else:
-                                # get possible urls for router admin.  use first ping of traceroute.
-                                rtradm=""
-                                # try 6 times...
-                                for i in range(5):
-                                    sp = subprocess.run(["traceroute","-n","-m","1","google.com"],capture_output=True)
-                                    _logger.debug(str(("traceroute() ret:",sp)))
-                                    for line in sp.stdout.decode("utf-8").split("\n"):
-                                        cols=line.split()
-                                        if len(cols) >= 2:
-                                            if cols[0] == "1" and cols[1] != "*":
-                                                if os.system("nc -z "+cols[1]+" 80") == 0:
-                                                    rtradm += "http://"+cols[1]+" or " if lynx else "<a href='http://"+cols[1]+"' target='_blank'>http://"+cols[1]+"</a> or "
-                                                if os.system("nc -z "+cols[1]+" 443") == 0:
-                                                    rtradm += "https://"+cols[1]+" or " if lynx else "<a href='https://"+cols[1]+"' target='_blank'>https://"+cols[1]+"</a> or "
-                                                # got some, so we are done
-                                                break
-                                    if rtradm != "": break
-                                    time.sleep(1)
-                                msg += ("Login to your local router using your web browser.  It may be one of these addresses: "+rtradm+"some other address provided to you.  " +
-                                  ("Depending on the SSH client software you are using, the address may be click-able while holding a key like Ctrl or Alt.  " if lynx else "") +
+                                msg += ("Login to your local router using your web browser.  " +
                                   "If you have trouble and you purchased your router, perform an internet search of the make and model of the router.  If your router was provided by your ISP, " +
                                   "try contacting them for support.  Select \"Next\" once you are logged in.").encode('utf_8')
                         # dhcp reserve/static
@@ -1209,38 +1220,86 @@ function setCaretToPos(input, pos) {
                             if os.system("ping -c 1 host.docker.internal") == 0:
                                 ipaddr["ipv4"]["mac"] = "(unknown)"
                                 ipaddr["ipv4"]["local"] = "(unknown)"
-                            msg += ("In your router, you should reserve this host's IPv4 address "+ipaddr["ipv4"]["local"]+" so it will not change.  "+
-                              "It is associated with the MAC address "+ipaddr["ipv4"]["mac"]+" of this host.  In most routers, it is in the DHCP section and called \"static\" or \"reserved\".  "+
+                            msg += ("In your router, you should reserve this host's IPv4 address (noted earlier) so it will not change.  "+
+                              "It is associated with the MAC address (also noted earlier) of this host.  In most routers, it is in the DHCP section and called \"static\" or \"reserved\".  "+
                               "If the IP address is not properly reserved, the router may assign this host a different IPv4 address after the next power cycle.  That would cause issues with IPv4.  "+
                               "This setting cannot be tested without powering off this host and the router for a significant amount of time.  "+
                               "If you have trouble and you purchased your router, perform an internet search of the make and model of the router.  If your router was provided by your ISP, "+
-                              "try contacting them for support.  Select \"Next\" once done.").encode('utf_8')
+                              "try contacting them for support.  If this host is your router, this step can be skipped.  Select \"Next\" once done.").encode('utf_8')
                         # port forward
                         case 4:
                             ipaddr=get_ip()
                             if os.system("ping -c 1 host.docker.internal") == 0:
                                 ipaddr["ipv4"]["local"] = "(unknown)"
                             msg += ("In your router, you need to configure IPv4 port forwarding.  The router needs to forward IPv4 TCP/IP packets from the Internet to this host's local IPv4 address "+
-                              ipaddr["ipv4"]["local"]+".  Two TCP ports are needed, 5061 and 38443.  The port forward settings are usually in the firewall or advanced section of the router settings.  "+
+                              "noted earlier.  Two TCP ports are needed, 5061 and 38443.  The port forward settings are usually in the firewall or advanced section of the router settings.  "+
                               "If you have trouble and you purchased your router, perform an internet search of the make and model of the router.  If your router was provided by your ISP, "+
-                              "try contacting them for support.  Select \"Next\" once done.").encode('utf_8')
+                              "try contacting them for support.  The configuration will be tested.  If this host is your router, then it will be firewall traffic rules, not port forward.  "+
+                              "Select \"Next\" once done.").encode('utf_8')
                         # intro test
                         case 5:
+                            class WizForm(MainForm):
+                                http_proxy = StringField("HTTP proxy URL")
+                                tor = BooleanField("Use Tor")
+                            try:
+                                rslt = requests.get("http://pubproxy.com/api/proxy?country=US,CA")
+                                if rslt.status_code != 200 or not is_json(rslt.text):
+                                    msg += ("Warning!  Failed to get initial http proxy from pubproxy.com.<br>").encode('utf_8')
+                                    msg += ("The pubproxy.com site returned: "+rslt.text+".<br>").encode('utf_8')
+                                else:
+                                    rsltj = rslt.json()
+                                    qs["http_proxy"] = rsltj["data"][0]["type"]+"://"+rsltj["data"][0]["ipPort"]
+                            except Exception as e:
+                                msg += ("Warning!  Failed to get initial http proxy from pubproxy.com.<br>").encode('utf_8')
+                                msg += ("The pubproxy.com error: "+str(e)+".<br>").encode('utf_8')
                             msg += ("Network connectivity will now be tested for remote and local access to this container via the public IP addresses.  "+
+                              "The remote test uses a free unauthenticated http proxy service.  Many are available, but they often come and go and may be unreliable.  "+
+                              "You can find your own via <a href='https://www.google.com/search?q=free+unauthenticated+http+proxy+service' target='_blank'>Google</a>.  "+
+                              "If the above entered http proxy fails, alternates from pubproxy.com will be tried.  "+
+                              "If you select Tor, the Tor services will be used.  "+
+                              "However, Tor needs more memory than the usual 100m granted to the container.  For Tor, 200m or more is recommended.  "
                               "Select \"Next\" to begin test.").encode('utf_8')
                         # test run...results
                         case 6:
-                            ipaddr=get_ip()
-                            msg += "testing...<br>\n".encode('utf_8')
-                            testurls = [ipaddr["ipv4"]["public"]+":5061",ipaddr["ipv4"]["public"]+":38443"]
-                            r = subprocess.run(["sudo","/scripts/fwtestviator.sh"]+testurls,capture_output=True)
-                            if r.returncode == 0:
-                                msg += "Success!  Select \"Next\" to continue.<br>\n".encode('utf_8')
+                            _logger.debug(str(("fwtest:",qs)))
+                            testscript = '/scripts/fwtestviaproxy.sh'
+                            if qs.get("tor","n") == "y":
+                                testscript = '/scripts/fwtestviator.sh'
+                            http_proxy = qs.get("http_proxy","http://127.0.0.1:8080")
+                            def process_status(process_name):
+                                try:
+                                    subprocess.check_output(["pgrep", process_name])
+                                    return True
+                                except subprocess.CalledProcessError:
+                                    return False
+                            tmp = '/tmp/fwout.log'
+                            if (os.path.exists(tmp)):
+                                _logger.debug(str(("fwtest: found",tmp)))
+                                with open(tmp, "r") as f:
+                                    lines = f.readlines()
+                                if process_status('fwtestvia'):
+                                    _logger.debug(str(("fwtest: running...",)))
+                                    msg += "Testing still in progress...  Wait a few more seconds and click Next.<br>\n".encode('utf_8')
+                                    qs["nextpage"] = "wizmenu-" + str(6)
+                                else:
+                                    os.remove(tmp)
+                                    _logger.debug(str(("fwtest: NOT running...",)))
+                                    if any('Congratulations!' in line for line in lines):
+                                        msg += "Success!  Select \"Next\" to continue.<br>\n".encode('utf_8')
+                                    else:
+                                        msg += "Failed!  Select \"Next\" to try again.<br>\n".encode('utf_8')
+                                        qs["nextpage"] = "wizmenu-" + str(4)
+                                msg += b"Details are as follows:<br>"
+                                msg += '<br>'.join(lines).encode('utf_8')
                             else:
-                                msg += "Failed!  Select \"Next\" to try again.<br>\n".encode('utf_8')
-                                qs["nextpage"] = "wizmenu-" + str(4)
-                            msg += b"Details are as follows:<br>"
-                            msg += r.stdout.replace(b'\n',b'<br>\n')
+                                _logger.debug(str(("fwtest: Temp file NOT found",tmp)))
+                                ipaddr=get_ip()
+                                msg += "testing...  Wait a few more seconds and click Next.<br>\n".encode('utf_8')
+                                qs["nextpage"] = "wizmenu-" + str(6)
+                                testurls = [ipaddr["ipv4"]["public"]+":5061",ipaddr["ipv4"]["public"]+":38443"]
+                                process = subprocess.Popen("sudo HTTP_PROXY="+http_proxy+" "+testscript+" "+' '.join(testurls)+" >"+tmp, shell=True)
+                                _logger.debug(str(("fwtest: started",process.args)))
+                            _logger.debug(str(("fwtest: ...",form)))
                         # DDNS sign-up
                         case 7:
                             apikey = get_global("DNSTOKEN")
@@ -1645,6 +1704,7 @@ function setCaretToPos(input, pos) {
 
         except Exception as e:
             PrintException(e)
+            _logger.error(str(("Admin wizard next form:",e)))
 
         # generate the html page to display
         if form:
