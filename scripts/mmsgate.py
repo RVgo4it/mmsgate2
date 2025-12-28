@@ -433,13 +433,13 @@ class web_class():
         qs.setdefault("thispage","mainmenu")
 
         try:
-            # process the form that was submitted but ignore the -n on some forms like wizzard forms
+            # process the form that was submitted but ignore the -n on some forms like wizard forms
             match qs["thispage"].split("-")[0]:
 
                 case "mainmenu":
                     _logger.debug(str(("Admin method: menu selected.")))
                     # map the clicked button to a form/page to load
-                    for f,m in [("Linphone","linmenu"),("Voip.ms","voipmsmenu"),("Wizzard","wizmenu-1"),("Advanced","advmenu")]:
+                    for f,m in [("Linphone","linmenu"),("Voip.ms","voipmsmenu"),("Wizard","wizmenu-1"),("Advanced","advmenu")]:
                         if f in qs.values(): qs["nextpage"] = m
 
                 case "advmenu":
@@ -589,7 +589,7 @@ class web_class():
             _logger.error(str(("Admin wizard submitted form:",e)))
 
         try:
-            # generate next form but ignore the -n on some forms like wizzard forms
+            # generate next form but ignore the -n on some forms like wizard forms
             match qs["nextpage"].split("-")[0]:
 
                 case "mainmenu":
@@ -598,7 +598,7 @@ class web_class():
 
                     form = MenuForm(data=qs)
                     # generate the main menu
-                    for b,d in [("Wizzard","Step by step configuration of MMSGate"),
+                    for b,d in [("Wizard","Step by step configuration of MMSGate"),
                         ("Linphone","Manage Linphone accounts for push notifications - Add/Edit/Delete"),
                         ("Voip.ms","Configure Voip.ms Accounts for MMSGate and configure clients"),
                         ("Advanced","Advanced menu for logs, restarts, etc.")]:
@@ -1183,12 +1183,12 @@ function setCaretToPos(input, pos) {
                         n = int(n)
                     except:
                         n = 0
-                    pagetitle = "- Wizzard".encode('utf_8')
+                    pagetitle = "- Wizard".encode('utf_8')
                     qs["thispage"] = "wizmenu-" + str(n)
                     qs["nextpage"] = "wizmenu-" + str(n+1)
                     WizForm = MainForm
                     match n:
-                        # intro for the wizzard
+                        # intro for the wizard
                         case 1:
                             msg += ("This is the MMSGate Wizard.  It will help you configure the Docker container and local network.  Select Cancel at any time to return to the previous page.  " +
                               "Click \"Next\" to continue.  This will stop OpenSIPS and disable it." ).encode('utf_8')
