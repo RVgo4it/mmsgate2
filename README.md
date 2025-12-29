@@ -1,10 +1,12 @@
 # MMSGate2
 
+
+
 ## Introduction
 
 MMSGate2 is a MMS message gateway between [VoIP.ms](https://voip.ms/) and [Linphone](https://www.linphone.org/en/) clients.
 
-Linphone is an open-source soft-phone. It makes VoiP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
+Linphone is an open-source soft-phone. It makes VoIP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
 
 VoIP.ms provides voice and SMS over SIP protocol. While MMS messages are possible, the service is provided over a customized API and web hook. MMSGate2 provides the link between VoIP.ms's MMS service and Linphone clients.
 
@@ -24,10 +26,10 @@ If you can download and install software, type URLs into a web page, copy-and-pa
 
 The host is the device you will install Docker.  MMSGate2 will run within Docker.  The host preparation will be different for different hosts.  Let's look at each one:
 
-<details >
+<details details name='host'>
 <summary>Windows</summary>
 For any Windows system, start by downloading Docker-Desktop for Windows 
-from <a href='https://www.docker.com/'>https://www.docker.com/</a>.  You
+from <a href='https://www.docker.com/' target='_blank'>https://www.docker.com/</a>.  You
 will most likely want the AMD64 version.  <br><br>
 Once installed, open the Docker-Desktop application.  Confirm that it 
 says "Engine Started" in the lower left.  It may take a little while.  If 
@@ -41,10 +43,10 @@ of the Windows desktop.  Right-click on Docker Desktop and select
 Quit Docker Desktop.  
 </details>
 
-<details >
+<details details name='host'>
 <summary>Apple MacOS</summary>
 For any MacOS system, start by downloading Docker-Desktop for Mac from
-<a href='https://www.docker.com/'>https://www.docker.com/</a>.  You
+<a href='https://www.docker.com/' target='_blank'>https://www.docker.com/</a>.  You
 likely know of you need the Intel or Sillicon version.  If not, try 
 one.  It it won't install, try the other. <br><br>
 Once installed, open the Docker-Desktop application.  Confirm that it 
@@ -57,11 +59,11 @@ If you wish to stop Docker completely, You can open the Activity Monitor,
 select Docker, and then use the Quit button.  
 </details>
 
-<details >
+<details details name='host'>
 <summary>Ubuntu Desktop</summary>
 For most any Linux GUI desktop system, start by selecting Download 
 Docker-Desktop, Download for Linux from 
-<a href='https://www.docker.com/'>https://www.docker.com/</a>.  It will 
+<a href='https://www.docker.com/' target='_blank'>https://www.docker.com/</a>.  It will 
 take you to the steps needed for your distribution.<br><br>
 Once installed, open the Docker-Desktop application.  Confirm that it 
 says "Engine Started" in the lower left.  It may take a little while.  <br><br>
@@ -73,23 +75,24 @@ If you wish to stop Docker completely, You can open the Activity Monitor,
 click Docker, and then select Quit Docker Desktop.  
 </details>
 
-<details >
+<details details name='host'>
 <summary>OpenWRT</summary>
-<a href='https://openwrt.org/'>OpenWRT</a> runs a wide variety of hardware.  
+<a href='https://openwrt.org/' target='_blank'>OpenWRT</a> runs a wide variety of hardware.  
 If it has enough memory, i.e. 100m free; also ARM32 (v7+) or 
 ARM64 processor or an AMD64 (Intel x86); plus some storage; you can 
 install Docker.  <br><br>
 First, make sure you have storage.  Don't try to run Docker on your 
 internal flash storage.  Read 
-<a href='https://openwrt.org/docs/guide-user/storage/usb-drives'>Using 
+<a href='https://openwrt.org/docs/guide-user/storage/usb-drives' target='_blank'>Using 
 storage devices</a> to get started.  Then setup the
-<a href='https://openwrt.org/docs/guide-user/additional-software/extroot_configuration'>
-Extroot configuration</a>.  <br><br>
+<a href='https://openwrt.org/docs/guide-user/additional-software/extroot_configuration' target='_blank'>
+Extroot configuration</a>.  On that same page, there is a section on swap.  
+It is recommended to also perform the swap steps.  <br><br>
 To install Docker, open a SSH session and paste these commands:
 <pre><code>opkg update
 opkg install docker
 opkg install luci-app-dockerman
-</code></pre><br><br>
+</code></pre>
 The default network for docker has some issues, so we'll create a new one:
 <pre><code>uci show network
 uci set network.docker1='device'
@@ -101,11 +104,11 @@ uci set network.dockerlan.device='docker1'
 uci set network.dockerlan.auto='0'
 uci commit network
 /etc/init.d/network reload
-# tell docker about new network
+# tell docker about the new network
 docker network create -o com.docker.network.bridge.enable_icc=true -o com.docker.network.bridge.enable_ip_masquerade=true \
   dockerlan -o com.docker.network.bridge.host_binding_ipv4=0.0.0.0 -o com.docker.network.bridge.name=docker1 \
   --ip-range=172.19.0.0/16 --subnet 172.19.0.0/16 --gateway=172.19.0.1
-</code></pre><br><br>
+</code></pre>
 Next, we need some firewall settings:
 <pre><code>uci show firewall
 # create a zone for docker
@@ -143,40 +146,41 @@ uci set firewall.mmsgate2noadm.dest_port='38000'
 uci set firewall.mmsgate2noadm.dest='*'
 uci commit firewall
 /etc/init.d/firewall reload
-</code></pre><br><br>
+</code></pre>
 </details>
 
-<details >
+<details details name='host'>
 <summary>Raspberry Pi/VPS/Ubuntu Server</summary>
 For all these devices, you'll need Ubuntu Server installed.  Once 
 on the system, you can follow the guide 
-<a href='https://docs.docker.com/engine/install/ubuntu'>Docker 
+<a href='https://docs.docker.com/engine/install/ubuntu' target='_blank'>Docker 
 install Ubuntu</a>.  <br><br>
 Tip for the Raspberry Pi:  These devices don't need many accessories.  
-I have had good luck with just flashing Ubuntu Server onto the SD card 
-with SSH enabled and network setup (including Wifi).  Put the SD card 
-in the Pi, power it up and a few minutes later, I check the DHCP server 
-in the router to get the Pi's IP address.  Then I just SSH to it.  
+It is often successful with just flashing Ubuntu Server onto the SD card 
+with SSH enabled and network setup (including Wifi).  Once the SD card 
+is in the Pi, power it up and a few minutes later, check the DHCP server 
+in the router to get the Pi's IP address.  Just SSH to it.  
 Thus, no keyboard or monitor needed.  <br><br>
-Tip for VPS: The admin interface is not available except from via a 
-private network such as 192.168.0.0/16 or 10.0.0.0/8.  A VPS may not have 
-a private network. However, it is available locally within the container 
-via port 38080.  Use the following command to open a web browser locally:
+Tip for VPS: The admin interface is not available except via a 
+private network such as 192.168.0.0/16 or 10.0.0.0/8.  Naturally, A VPS 
+may not have a private network. However, it is available locally within 
+the container via port 38080.  Use the following command to open a web 
+browser locally:
 <pre><code>docker exec -it mmsgate2 lynx http://127.0.0.1:38080/admin
-</code></pre><br><br>
+</code></pre>
 </details>
 
-<details >
+<details details name='host'>
 <summary>NAS</summary>
 NAS devices that are ARM or AMD (Intel) based have applications that you 
-can install that run Docker; like have apps like 
-<a href='https://www.qnap.com/en-us/software/container-station'>
+can install that run Docker; apps like 
+<a href='https://www.qnap.com/en-us/software/container-station' target='_blank'>
 QNAP's Container Station</a> or 
-<a href='https://www.synology.com/en-br/dsm/feature/docker'>
+<a href='https://www.synology.com/en-br/dsm/feature/docker' target='_blank'>
 Synology's Container Manager</a>.  <br><br>
 The command prompt will still be needed, so once the app is install, 
 enable SSH and open an SSH comand prompt.
-Synology tips: Commands pasted into the SSH sessions will usually need a
+Synology tip: Commands pasted into the SSH sessions will usually need a
 sudo prefix.  This is because the default user via SSH may not have docker 
 permission.  
 </details>
@@ -185,19 +189,27 @@ permission.
 
 ## Install MMSGate2
 
+Now that the host is all set, we can install MMSGate2.
+
+### Docker Image
+
 Open the Docker Command Line Interface (CLI).  For Docker-Desktop, that is the ">_ Terminal" in the lower right of Docker-Desktop.  For OpenWRT, NAS and Ubuntu Servers, that is the SSH session.  
 
 Copy-and-paste the following command into the Docker CLI:
 
-`docker pull rvgo4it/mmsgate2`
+```bash
+docker pull rvgo4it/mmsgate2
+```
 
 You will see multiple download and extracts for the image layers.  It may take a few minutes.  Once done, we can run MMSGate2.  
 
-The the following command, make note of some options you may want to change.  For example, to give MMSGate2 more memory, adjust the "-m 100m" to "-m 200m" for 200 megs of memory as an example.  You can adjust the "--cpus 2" option to use more CPU cores.  However, more cores means more processes and more processes need more memory.  Also note the "TZ=America/New_York" value.  Depending on your time zone, you may want to change it to "TZ=America/Chicago", "TZ=America/Los_Angeles" or "TZ=America/Denver".  
+### Docker Container
+
+For the following command, make note of some options you may want to change.  For example, to give MMSGate2 more memory, adjust the "-m 100m" to "-m 200m" for 200 megs of memory as an example.  You can adjust the "--cpus 2" option to use more CPU cores.  However, more cores means more processes and more processes need more memory.  Also note the "TZ=America/New_York" value.  Depending on your time zone, you may want to change it to "TZ=America/Chicago", "TZ=America/Los_Angeles" or "TZ=America/Denver".  
 
 For Windows, use this command:
 
-```
+```PowerShell
 docker run -m 100m --name mmsgate2 -d `
   -p 5061:5061 -p 38443:38443 -p 38000:38000 `
   --cpus 2 `
@@ -209,10 +221,10 @@ docker run -m 100m --name mmsgate2 -d `
 
 For OpenWRT, use this command:
 
-```
+```bash
 docker run -m 100m --name mmsgate2 -d \
-  --cpus 2 --network dockerlan \
   -p 5061:5061 -p 38443:38443 -p 38000:38000 \
+  --cpus 2 --network dockerlan \
   -e "TZ=America/New_York" \
   -v datavol:/data \
   -v confvol:/etc/opensips \
@@ -221,7 +233,7 @@ docker run -m 100m --name mmsgate2 -d \
 
 For MacOS, NAS and Ubuntu server and desktop, use this command:
 
-```
+```bash
 docker run -m 100m --name mmsgate2 -d \
   -p 5061:5061 -p 38443:38443 -p 38000:38000 \
   --cpus 2 \
@@ -230,6 +242,23 @@ docker run -m 100m --name mmsgate2 -d \
   -v confvol:/etc/opensips \
   rvgo4it/mmsgate2
 ```
+
+Set the container to always restart:
+
+```bash
+docker update --restart unless-stopped mmsgate2
+```
+
+### Backups
+
+Use these commands to see where the MMSGate2 data and configuration is stored.  Make note of the "Mountpoint".
+
+```bash
+docker inspect confvol
+docker inspect datavol
+```
+
+Make sure that the backup system used on the host includes these paths.
 
 ## Configure MMSGate2
 
@@ -247,8 +276,10 @@ For others, use the IP address you used for SSH.  It may be something like:
 
 It will prompt for an ID and password:  
 
-    Username:     admin
-    Password:     Apple99
+| default   | logon   |
+| --------- | ------- |
+| Username: | admin   |
+| Password: | Apple99 |
 
 It will look something like this:
 
@@ -256,7 +287,7 @@ It will look something like this:
 
 ### Password Change
 
-**IMPORTANT: **Change the admin password right away.  It is under Advanced->Set_Admin_Password.  
+**IMPORTANT:** Change the admin password right away.  It is under Advanced->Set_Admin_Password.  
 
 ![](images/password.png)
 
@@ -286,9 +317,9 @@ From the main menu, select VoIP.ms.
 
 This page displays all your sub accounts.  It will not make any changes to VoIP.ms.  
 
-It may ask you to make changes to your sub accounts if needed.  MMSGate needs a DID selected as the CallerID for any sub accounts.  Also, the sub account needs to be configured for encrypted SIP traffic and be assigned a unique extension.  Any DID used with MMSGate2 also needs to have a web hook URL entered.  This page will tell you if needed.  After making changes to sub accounts or DIDs at the Voip.ms web site, click Refresh to load the new settings.   
+It may ask you to make changes to your sub accounts or DIDs if needed.  MMSGate needs a DID selected as the CallerID for any sub accounts.  Also, the sub account needs to be configured for encrypted SIP traffic and be assigned a unique extension.  Any DID used with MMSGate2 also needs to have a web hook URL entered.  This page will tell you if needed.  After making changes to sub accounts or DIDs at the Voip.ms web site, click Refresh to load the new settings.   
 
-The SMS/MMS Ignore/Accept is for when a message arrives on one of your DIDs.  It can be accepted and forwarded to any sub accounts associated with that DID.  Or, the message can be ignored.  
+The SMS/MMS Ignore/Accept is for when a message arrives for one of your DIDs.  It can be accepted and forwarded to any sub accounts associated with that DID.  Or, the message can be ignored.  An ATA device, SIP phone or other devices that cannot receive SMS and MMS messages, always set to ignore.  
 
 Under Push Notif, a Linphone account can be selected for the sub account.  If selected, Push Notifications can be used by the mobile app.  
 
@@ -321,3 +352,72 @@ The QR code is the easiest way to configure the client.  Install a Linphone clie
 Once the app is installed, open it and respond to the usual prompts.  Stop short of registering or providing any credentials.  When offered, use the camera to scan the QR code.   Once scanned, logon is done and you are online.  
 
 Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.  
+
+If Push Notification was configured, the system will send a SMS message via the selected Linphone account when needed.  When the first message appears, simply mute the conversation.  There is no need for a pop-up for every Push Notification.  
+
+If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages.
+
+## FAQ
+
+- VoIP.ms already has an app for iOS and Android.  Why use MMSGate2?
+  
+  - The VoIP.ms Softphone cannot do MMS.  Thus, MMSGate2 is still needed. In addition, it cannot send messages to other extensions.  Extension messaging is very useful and 100% free!  
+
+- What happens if you attach a non-media file, for example a PDF, to a MMS message?  
+  
+  - If it is sent to an extension, Linphone will accept it as an MMS message and allow the receiver to open and view the file.  This is a handy method for transferring files between devices like phones or tablets.  
+  
+  - If it is sent to a cellular mobile number, it will be converted into a SMS message containing the URL for downloading the file.  
+
+- I have a cable modem and home wifi router.  Configure both?
+  
+  - If the cable modem is purely a modem, it will provide an Internet IP address to your home wifi router.  So, just the home router needs to be configured.   However, some cable modems also act as a router.  This is called a double NAT,  and can complicate things.  It can still be done, but it would be better to simplify things.  
+
+- The contacts that are imported during client config, where do they come from? 
+  
+  - All the sub accounts that have an extension and use encrypted traffic will be imported as contacts.  The name is from the optional description fields on the sub account.  If it's blank, the contact will use the internal CNAM for the sub account.  If it is also blank, it will default to just the extension as the name.  The extension in the contact will include the "10" prefix to the number.  
+
+- Why does MMSGate2 use so little memory?
+  
+  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts are still the biggest memory hogs.  
+  
+  - Currently, the Python scripts primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the app for new MMS messages.  The admin interface is secondary.  
+
+- What happens if MMSGate2 exceeds the 100m of memory?
+  
+  - If that happens, Docker will kill MMSGate2 processes.  Depending on the process, different things will happen.  [Gunicorn](https://gunicorn.org/) monitors the Python processes and will restart any killed.  But some are more critical and will cause the entire Python script to exit and restart.  For OpenSIPS, a killed process may also cause the application to exit and restart.  If process 1 is killed, the entire container will restart.
+
+- New image version for MMSGate2 released?  How to install?
+  
+  - To install a new MMSGate2 image, clear out the old container with these commands:  
+  - ```bash
+    docker stop mmsgate2
+    docker container rm mmsgate2
+    ```
+  - Jump to the [Docker Image](#docker-image) and [Docker Container](#docker-container) sections and perform just those commands again.  The config and data volumes will be retained.  
+
+- How much data?
+  
+  - The size of the data stored by MMSGate2 is determined by the size and number of files in your MMS messages.  However, after 90 days, the files will be removed.  
+
+- How can I change the 90 day limit?
+  
+  - From the command prompt, type:
+  
+  - ```bash
+    docker exec -it mmsgate2 sudo crontab -e
+    ```
+  
+  - Look for a "find"" command and adjust the -mtime parameter.  Keep in mind, crontab is not part of the MMSGate2 config.  It is part of the image.  If you install a newer image, it will revert to defaults and you will need to adjust -mtime again.  
+
+- I may have missed some messages.  MMSGate2 was down for hours earlier today.  How can I recover them?
+  
+  - If MMSGate2 is offline when a SMS or MMS message is sent to one of your DIDs, the web hook call from VoIP.ms to MMSGate2 will fail.  
+  
+  - However, the message is still in the logs at VoIP.ms.  The mmsreconcile.py script runs daily at 2:35 AM.  It will compare the message logs at VoIP.ms to the local logs.  Any messages missed will be resent.  It will check for messages as old as 7 days.  
+
+- Why does the Linphone app show two accounts connected?
+  
+  - When the client was configured, a Linphone account was selected so as to use Push Notifications (PN).  
+  
+  - PN requires credentials shared between the sending server, Linphone.org and the Linphone app.  MMSGate2 triggers the push notification by sending a free SMS message via the Linphone.org server to the Linphone account registered in the app.  

@@ -121,6 +121,7 @@ RUN	if md5sum --check hashes.txt; then patch /usr/src/opensips-cli/opensipscli/m
 
 RUN	cd /usr/src/opensips-cli && \
 	pip3 install . && \
+	pip3 install --upgrade urllib3 && \
 	pip3 install cryptography && \
 	rm -rf /usr/src/opensips-cli
 
@@ -131,6 +132,7 @@ LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
 
 # Update and install items needed for opensips
 RUN     apt -y update && \
+        apt -y upgrade && \
         # Install common tools
         apt -y install sudo \
         iputils-ping \
