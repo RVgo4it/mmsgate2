@@ -15,7 +15,7 @@ if [ ! -e $DBPATH ]; then
   # create db
   log "Creating database $DBPATH"
   opensips-cli -o database_url=sqlite:// -o "database_modules=usrloc msilo presence tls_mgm" -o database_schema_path=/usr/share/opensips -x database create $DBPATH
-  chmod 770 $DBPATH
+  chmod 775 $DBPATH
   chown opensips:mmsgateadm $DBPATH
 else
   [ $DBG ] && log "Skipping database create, $DBPATH exists."
@@ -36,8 +36,8 @@ tls_ca_common_name: mmsGate CA
 tls_ca_country: US
 tls_ca_state: Florida
 tls_ca_locality: Tally
-tls_ca_organisation: https://github.com/RVgo4it
-tls_ca_organisational_unit: https://github.com/RVgo4it/mmsgate
+tls_ca_organisation: self
+tls_ca_organisational_unit: self
 tls_ca_notafter: 315360000
 tls_ca_key_size: 4096
 tls_ca_md: SHA256
@@ -72,8 +72,8 @@ tls_user_common_name: mmsGate
 tls_user_country: US
 tls_user_state: Florida
 tls_user_locality: Tally
-tls_user_organisation: https://github.com/RVgo4it
-tls_user_organisational_unit: https://github.com/RVgo4it/mmsgate
+tls_user_organisation: self
+tls_user_organisational_unit: self
 tls_user_notafter: 315360000
 tls_user_key_size: 4096
 tls_user_md: SHA256

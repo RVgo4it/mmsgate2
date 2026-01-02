@@ -1,12 +1,28 @@
 # MMSGate2
 
+## Table of Contents
 
+- [MMSGate2](#mmsgate2)
+  - [Table of Contents](#table-of-contents)
+  - [Introduction](#introduction)
+  - [Requirements and Prerequisites](#requirements-and-prerequisites)
+  - [Prepare the Host](#prepare-the-host)
+  - [Install MMSGate2](#install-mmsgate2)
+    - [Docker Image](#docker-image)
+    - [Docker Container](#docker-container)
+    - [Backups](#backups)
+  - [Configure MMSGate2](#configure-mmsgate2)
+    - [Connect](#connect)
+    - [Password Change](#password-change)
+    - [Wizard](#wizard)
+    - [Linphone Accounts](#linphone-accounts)
+    - [VoIP.ms Sub Accounts](#voipms-sub-accounts)
+    - [Client Config](#client-config)
+  - [FAQ](#faq)
 
 ## Introduction
 
-MMSGate2 is a MMS message gateway between [VoIP.ms](https://voip.ms/) and [Linphone](https://www.linphone.org/en/) clients.
-
-Linphone is an open-source soft-phone. It makes VoIP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
+MMSGate2 is a MMS message gateway between [VoIP.ms](https://voip.ms/) and [Linphone](https://www.linphone.org/en/) clients.Linphone is an open-source soft-phone. It makes VoIP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
 
 VoIP.ms provides voice and SMS over SIP protocol. While MMS messages are possible, the service is provided over a customized API and web hook. MMSGate2 provides the link between VoIP.ms's MMS service and Linphone clients.
 
@@ -47,7 +63,7 @@ Quit Docker Desktop.
 <summary>Apple MacOS</summary>
 For any MacOS system, start by downloading Docker-Desktop for Mac from
 <a href='https://www.docker.com/' target='_blank'>https://www.docker.com/</a>.  You
-likely know of you need the Intel or Sillicon version.  If not, try 
+likely know if you need the Intel or Sillicon version.  If not, try 
 one.  It it won't install, try the other. <br><br>
 Once installed, open the Docker-Desktop application.  Confirm that it 
 says "Engine Started" in the lower left.  It may take a little while.  <br><br>
@@ -179,10 +195,13 @@ QNAP's Container Station</a> or
 <a href='https://www.synology.com/en-br/dsm/feature/docker' target='_blank'>
 Synology's Container Manager</a>.  <br><br>
 The command prompt will still be needed, so once the app is install, 
-enable SSH and open an SSH comand prompt.
+enable SSH and open a SSH comand prompt.<br><br>
 Synology tip: Commands pasted into the SSH sessions will usually need a
-sudo prefix.  This is because the default user via SSH may not have docker 
-permission.  
+"<code>sudo</code>" prefix.  This is because the default user via SSH may not have docker 
+permission.  <br><br>
+QNAP tip: To make sure MMSGate2 starts when the NAS starts and has 
+correct resource limits, open "Container Station", open "mmsgate2", 
+stop then open "Settings" and enable "Auto start" and set resource limits.
 </details>
 
 **The host and up-time:**  For the long term, It is not recommended to run MMSGate2 on a system that has active power-management (can go to sleep) or is also used for web browsing, email and office documents.  For the long term, please use a host that will be up and operational 24/7.  
@@ -276,7 +295,7 @@ For others, use the IP address you used for SSH.  It may be something like:
 
 It will prompt for an ID and password:  
 
-| default   | logon   |
+| prompt    | default |
 | --------- | ------- |
 | Username: | admin   |
 | Password: | Apple99 |
@@ -297,7 +316,25 @@ Once done, return to the main menu.
 
 ### Wizard
 
-Click Wizard. The Wizard will walk you through the setup of MMSGate2 one step at a time.  For OpenWRT hosts, no router configuration needed.  That step in the Wizard can be skipped.  Once the Wizard is completed, you will return to the main menu.
+Click Wizard. The Wizard will walk you through the setup of MMSGate2 one step at a time.  The Wizard will help you with these items:
+
+- [ ] Disable and stop OpenSIPS.
+
+- [ ] Reserve the host's IP address in the router so it won't change.
+
+- [ ] Open the network ports required for MMSGate2 via the router.
+
+- [ ] Test the network ports.
+
+- [ ] Setup a Dynamic Domain Name System (DDNS).
+
+- [ ] Create an encryption certificate.
+
+- [ ] Setup VoIP.ms API access.
+
+- [ ] OpenSIPS is enabled and container restarted.
+
+For OpenWRT hosts, no router configuration needed.  Those steps in the Wizard can be skipped.  Once the Wizard is completed, you will return to the main menu.
 
 ### Linphone Accounts
 
@@ -305,7 +342,7 @@ If you want to use Push Notifications, click Linphone.
 
 ![](images/linphone.png)
 
-You can create new linphone accounts from this page or add existing one.  Once they are created or added successfully, they will appear as "Activated!" and can be used for Push Notifications.  
+You can create new Linphone accounts from this page or add existing one.  Once they are created or added successfully, they will appear as "Activated!" and can be used for Push Notifications.  
 
 You will need one Linphone account for each VoIP.ms sub account used by a mobile device running the Linphone App and Push Notification is needed.  When done, click Cancel to return to the main menu.
 
@@ -369,9 +406,10 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
   
   - If it is sent to a cellular mobile number, it will be converted into a SMS message containing the URL for downloading the file.  
 
-- I have a cable modem and home wifi router.  Configure both?
+- I have a cable modem and home Wifi router.  Configure both?
   
-  - If the cable modem is purely a modem, it will provide an Internet IP address to your home wifi router.  So, just the home router needs to be configured.   However, some cable modems also act as a router.  This is called a double NAT,  and can complicate things.  It can still be done, but it would be better to simplify things.  
+  - If the cable modem is purely a modem, it will provide an Internet IP address to your home Wifi router.  So, just the home router needs to be configured.   
+  - However, some cable modems also act as a router.  This is called a double NAT,  and can complicate things.  It can still be done by configuring both.  But it would be better to simplify things.  
 
 - The contacts that are imported during client config, where do they come from? 
   
@@ -379,7 +417,7 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
 
 - Why does MMSGate2 use so little memory?
   
-  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts are still the biggest memory hogs.  
+  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts are still the biggest memory hogs.  
   
   - Currently, the Python scripts primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the app for new MMS messages.  The admin interface is secondary.  
 
@@ -420,4 +458,14 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
   
   - When the client was configured, a Linphone account was selected so as to use Push Notifications (PN).  
   
-  - PN requires credentials shared between the sending server, Linphone.org and the Linphone app.  MMSGate2 triggers the push notification by sending a free SMS message via the Linphone.org server to the Linphone account registered in the app.  
+  - PN requires credentials shared between the sending server, Linphone.org and the Linphone app.  MMSGate2 triggers the PN by sending a free SMS message via the Linphone.org server to the Linphone account registered in the app.  
+
+- I forgot my password.  How do I reset it?
+  
+  - From the command prompt, i.e. SSH or ">_ Terminal", paste the following command:
+  
+  - ```bash
+    docker exec -it mmsgate2 lynx http://127.0.0.1:38080/admin
+    ```
+  
+  - The admin page will appear in text format.  Select Advanced->Set_Admin_Password.  

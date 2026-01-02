@@ -11,6 +11,7 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.10 1/2/2026 Minor bug fixes and Wizard enhancements
 # v1.0.9 12/26/2025 Improved firewall testing in wazard
 # v1.0.8 12/24/2025 Minor bugs and wizard fixes.
 # v1.0.7 12/5/2025 Added password change for /admin and minor bugs
@@ -71,6 +72,7 @@ class web_class():
             'timeout': 0,
             'workers': number_of_workers(),
             'post_worker_init':post_worker_init,
+            'worker_tmp_dir': '/dev/shm',
             'syslog': True,
             'syslog_addr': "unix:///dev/log#dgram",
             'syslog_prefix': "mmsgate",
@@ -684,6 +686,13 @@ class web_class():
                               "SELECT rowid,* FROM linphone order by rowid;\""],capture_output=True)
                             _logger.debug(str(("db dump linphone ret:",sp)))
                             msg += b'Database dump of table "linphone":<br><table>' + sp.stdout + b'</table><br>'
+                            sp = subprocess.run(["bash","-c",". /etc/opensips/globalcfg.sh; sqlite3 -html -header  $DBPATH \""+
+                              "SELECT id, src_addr, dst_addr, username, domain, "+
+                              "strftime('%Y-%m-%d %H:%M',datetime(inc_time, 'unixepoch', 'localtime')) as inc_time, "+
+                              "strftime('%Y-%m-%d %H:%M',datetime(exp_time, 'unixepoch', 'localtime')) as exp_time, "+
+                              "strftime('%Y-%m-%d %H:%M',datetime(snd_time, 'unixepoch', 'localtime')) as snd_time, ctype, substr(body,1,30) as body FROM silo order by rowid;\""],capture_output=True)
+                            _logger.debug(str(("db dump silo ret:",sp)))
+                            msg += b'Database dump of OpenSIPS table "silo":<br><table>' + sp.stdout + b'</table><br>'
 
                         case "setglobaldebug":
                             # get current value
@@ -1983,10 +1992,15 @@ class db_class():
                             if newtoid:
                                     # send it!
                                 if msgtype == "SMS":
-                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
+#                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
+#                                      "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: text/plain\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],timeout=30,capture_output=True)
+                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format("localhost"),
                                       "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: text/plain\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],timeout=30,capture_output=True)
                                 else:
-                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
+#                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
+#                                      "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: application/vnd.gsma.rcs-ft-http+xml\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],
+#                                      timeout=30,capture_output=True)
+                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format("localhost"),
                                       "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: application/vnd.gsma.rcs-ft-http+xml\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],
                                       timeout=30,capture_output=True)
                                 _logger.debug("send message returned: "+str(sp))

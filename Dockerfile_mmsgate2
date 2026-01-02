@@ -11,8 +11,7 @@ WORKDIR	/root
 # install needed apps
 RUN	apt -y update && \
 	apt -y upgrade && \
-	apt install -y python3-multipart \
-        curl \
+	apt install -y curl \
 	netcat-openbsd \
 	net-tools \
 	tor \
