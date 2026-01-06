@@ -344,7 +344,7 @@ If you want to use Push Notifications, click Linphone.
 
 You can create new Linphone accounts from this page or add existing one.  Once they are created or added successfully, they will appear as "Activated!" and can be used for Push Notifications.  
 
-You will need one Linphone account for each VoIP.ms sub account used by a mobile device running the Linphone App and Push Notification is needed.  When done, click Cancel to return to the main menu.
+You will need one Linphone account for each mobile device running the Linphone App and Push Notification is needed.  When done, click Cancel to return to the main menu.
 
 ### VoIP.ms Sub Accounts
 
@@ -358,7 +358,7 @@ It may ask you to make changes to your sub accounts or DIDs if needed.  MMSGate 
 
 The SMS/MMS Ignore/Accept is for when a message arrives for one of your DIDs.  It can be accepted and forwarded to any sub accounts associated with that DID.  Or, the message can be ignored.  An ATA device, SIP phone or other devices that cannot receive SMS and MMS messages, always set to ignore.  
 
-Under Push Notif, a Linphone account can be selected for the sub account.  If selected, Push Notifications can be used by the mobile app.  
+Under Push Notif, a Linphone account can be selected for the sub account.  If selected, Push Notifications can be used by to wake the mobile app.  If the same Linphone account is assigned to multiple sub accounts, it tells MMSGate that all those sub accounts will be used on the same mobile app.  
 
 When modifying Push Notif or SMS/MMS settings for a sub account, press Apply after making selection.  
 
@@ -368,7 +368,7 @@ Once done settings preferences, click "Client Config".
 
 ![](images/client.png)
 
-By default, the client config includes an encrypted copy of the sub account password.  Also, account configs are loaded into the mobile app starting at zero.  If there is already an account at zero, loading this new config will overwrite it.  To prevent overwriting, you can change the index.  If the password preference or index is changed, press Refresh.
+By default, the client config includes an encrypted copy of the sub account password.  If using Push Notification, the config will include all sub accounts assigned the same Linphone account.  If not using Push Notification, additional sub accounts can be selected.  If the password preference is changed or a sub account added, press Refresh.  If the encrypted password is not included, the client will prompt for a password.  
 
 The QR code is the easiest way to configure the client.  Install a Linphone client.
 
@@ -386,11 +386,11 @@ The QR code is the easiest way to configure the client.  Install a Linphone clie
 
 - Linux - [Download](https://linphone.org/releases/linux/latest_app)
 
-Once the app is installed, open it and respond to the usual prompts.  Stop short of registering or providing any credentials.  When offered, use the camera to scan the QR code.   Once scanned, logon is done and you are online.  
+Once the client is installed, open it and respond to the usual prompts.  Stop short of registering or providing any credentials.  When offered, use the camera to scan the QR code.   Once scanned, logon is done and you are online.  
 
 Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.  
 
-If Push Notification was configured, the system will send a SMS message via the selected Linphone account when needed.  When the first message appears, simply mute the conversation.  There is no need for a pop-up for every Push Notification.  
+If Push Notification was configured, the system will send a free SMS message via the selected Linphone account when needed.  When the first message appears, simply mute the conversation.  There is no need for a pop-up for every Push Notification.  
 
 If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages.
 
@@ -413,13 +413,13 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
 
 - The contacts that are imported during client config, where do they come from? 
   
-  - All the sub accounts that have an extension and use encrypted traffic will be imported as contacts.  The name is from the optional description fields on the sub account.  If it's blank, the contact will use the internal CNAM for the sub account.  If it is also blank, it will default to just the extension as the name.  The extension in the contact will include the "10" prefix to the number.  
+  - All the sub accounts that have an extension will be imported as contacts.  The name is from the optional description fields on the sub account.  If it's blank, the contact will use the internal CNAM for the sub account.  If it is also blank, it will default to just the extension as the name.  The extension in the contact will include the "10" prefix to the number.  
 
 - Why does MMSGate2 use so little memory?
   
   - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts are still the biggest memory hogs.  
   
-  - Currently, the Python scripts primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the app for new MMS messages.  The admin interface is secondary.  
+  - Currently, the Python scripts primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the mobile app for new MMS messages.  The admin interface is secondary.  
 
 - What happens if MMSGate2 exceeds the 100m of memory?
   
@@ -446,7 +446,7 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
     docker exec -it mmsgate2 sudo crontab -e
     ```
   
-  - Look for a "find"" command and adjust the -mtime parameter.  Keep in mind, crontab is not part of the MMSGate2 config.  It is part of the image.  If you install a newer image, it will revert to defaults and you will need to adjust -mtime again.  
+  - Look for a "find"" command and adjust the -mtime parameter.    
 
 - I may have missed some messages.  MMSGate2 was down for hours earlier today.  How can I recover them?
   

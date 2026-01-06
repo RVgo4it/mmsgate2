@@ -11,6 +11,9 @@
 # NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 # OF THIS SOFTWARE.
 
+# v1.0.13 1/5/2026 Fixes to client config section
+# v1.0.12 1/4/2026 Applied ruff fixes
+# v1.0.11 1/3/2026 New python3-multipart required rewrite upload service plus crontab enhancements
 # v1.0.10 1/2/2026 Minor bug fixes and Wizard enhancements
 # v1.0.9 12/26/2025 Improved firewall testing in wazard
 # v1.0.8 12/24/2025 Minor bugs and wizard fixes.
@@ -24,9 +27,9 @@
 # v1.0.0 11/19/2025 Major rewrite for OpenSIPS and Push Notification via linphone.org
 
 # some of the usual imports
-import time
-import sys
 import os
+import sys
+import time
 
 # this class runs the httpd/wsgi processes for receiving http(s) requests
 class web_class():
@@ -57,7 +60,7 @@ class web_class():
                 # docker run --cpus is available via nproc cmd
                 result = subprocess.run(['nproc'], capture_output=True, text=True)
                 cores = int(result.stdout.strip())
-            except:
+            except ValueError:
                 # fail over to cpu_count()
                 cores = multiprocessing.cpu_count()
             return (cores * 2) + 1
@@ -107,16 +110,15 @@ class web_class():
 
     # process the webhook POST or the MMS media GET or file upload or admin interface...
     def webhook_app(self, environ, start_response):
-        import multiprocessing as mp
-        from datetime import datetime, timezone, timedelta
-        import mimetypes
-        import multipart
-        import requests
         import json
-        import uuid
-        from urllib.parse import urlparse, parse_qs
-        from urllib.request import quote
+        import mimetypes
         import os
+        import uuid
+        from datetime import datetime, timedelta, timezone
+        from urllib.parse import parse_qs, urlparse
+        from urllib.request import quote
+
+        import requests
         # template for sending MMS to linphone clients
         mms_template = '''<?xml version="1.0" encoding="UTF-8"?>
 <file xmlns="urn:gsma:params:xml:ns:rcs:rcs:fthttp" xmlns:am="urn:gsma:params:xml:ns:rcs:rcs:rram">
@@ -151,43 +153,39 @@ class web_class():
                     response_body = b""
                 # return 200 if got file POST
                 else:
-                    multipart_headers = {'Content-Type': environ['CONTENT_TYPE']}
-                    multipart_headers['Content-Length'] = environ['CONTENT_LENGTH']
-                    web_class.webhook_app.resp = ""
-                    # this is called from parse_form
-                    def on_file(file):
-                        _logger.debug(str(("file:",file,file.field_name,file.file_name,file.file_object)))
-                        # get the local file name
+                    from multipart import is_form_request, parse_form_data
+                    resp = ""
+                    # it is a multipart form
+                    if is_form_request(environ):
+                        _logger.debug(str(("is_form_request","true")))
+                        forms, files = parse_form_data(environ)
+                        # get place to put file(s)
                         path = os.path.expanduser(cfg.get("web","localmedia"))
                         udir = str(uuid.uuid4())
                         dpath = os.path.join(path,udir)
                         os.makedirs(dpath,exist_ok=True)
-                        fpath = os.path.join(dpath,file.file_name.decode('utf-8'))
-                        _logger.debug("Local path: "+fpath)
-                        # write the POST-ed file to local file
-                        file.file_object.seek(0)
-                        with open(fpath, "wb") as f:
-                            f.write(file.file_object.read())
-                        # get info for XML file
-                        filesize = os.path.getsize(fpath)
-                        filetype = mimetypes.guess_type(fpath)[0]
-                        fname = os.path.join(udir,file.file_name.decode('utf-8'))
-                        furl = cfg.get("web","protocol") + "://" + cfg.get("web","webdns") + ":" + str(cfg.get("web","webport")) + cfg.get("web","pathget") + "/" + quote(fname)
-                        _logger.debug("url: "+furl)
                         until = (datetime.now(tz=timezone.utc)+timedelta(days=365)).isoformat()[:19]+"Z"
-                        # got XML file to return
-                        web_class.webhook_app.resp += mms_template.format(filesize,file.file_name.decode('utf-8'),filetype,furl,until)
-                    # parse the POST-ed file
-                    multipart.parse_form(multipart_headers, environ['wsgi.input'],
-                      lambda field:
-                        _logger.warning(str("field:",field,field.field_name,field.value)),
-                      on_file, chunk_size=1024 * 8 )
+                        # check each file, should only be 1?
+                        for fstr in files:
+                            f = files[fstr]
+                            # save it to disk
+                            fpath = os.path.join(dpath,f.filename)
+                            _logger.debug(str(("Local file path:",fstr,fpath)))
+                            f.save_as(fpath)
+                            # get info for XML file
+                            filesize = os.path.getsize(fpath)
+                            filetype = mimetypes.guess_type(fpath)[0]
+                            fname = os.path.join(udir,f.filename)
+                            furl = cfg.get("web","protocol") + "://" + cfg.get("web","webdns") + ":" + str(cfg.get("web","webport")) + cfg.get("web","pathget") + "/" + quote(fname)
+                            _logger.debug(str(("URL file path:",furl)))
+                            # got XML file to return
+                            resp += mms_template.format(filesize,f.filename,filetype,furl,until)
                     # no file POST found?
-                    if web_class.webhook_app.resp == "":
+                    if resp == "":
                         raise ValueError("No POST-ed file found.")
                     else:
                         status = "200 OK"
-                        response_body = str.encode(web_class.webhook_app.resp)
+                        response_body = str.encode(resp)
                     # check for "to" url param
                     if environ['QUERY_STRING'] != "":
                         import urllib
@@ -196,7 +194,7 @@ class web_class():
                         if "to" in qs:
                             _logger.debug("POST to fileserver: sending: "+str(qs))
                             # send image/video uploaded to the client soecified
-                            self.ask_q.put_nowait(("MsgNew","1099",None,qs["to"][0],None,web_class.webhook_app.resp,"IN",None,"MMS",0))
+                            self.ask_q.put_nowait(("MsgNew","1099",None,qs["to"][0],None,resp,"IN",None,"MMS",0))
             except Exception as e:
                 PrintException(e)
                 status = "500 Error"
@@ -310,14 +308,14 @@ class web_class():
                     # open the fifo from other process running tail
                     try:
                         f = os.open(self.fifodir + '/' + d['log'][0], os.O_RDONLY | os.O_NONBLOCK)
-                    except FileNotFoundError as e:
+                    except FileNotFoundError:
                         # if not found, must be done
                         response_body = b'--DONE--'
                     else:
                         # read a chunk of the log from fifo
                         try:
                             response_body = os.read(f,1024*1024)
-                        except BlockingIOError as e:
+                        except BlockingIOError:
                             # must have been none
                             response_body = b''
 
@@ -362,15 +360,26 @@ class web_class():
 
     # process the admin forms
     def admin(self,environ,ask_q):
-        from wtforms import Form, BooleanField, SubmitField, StringField, SelectField, FieldList, FormField, HiddenField, PasswordField, validators
-        import urllib
-        from prettytable import PrettyTable
         import html
-        import requests
-        import string
-        import secrets
-        import subprocess
         import json
+        import secrets
+        import string
+        import subprocess
+        import urllib
+
+        import requests
+        from prettytable import PrettyTable
+        from wtforms import (
+            BooleanField,
+            FieldList,
+            Form,
+            FormField,
+            HiddenField,
+            PasswordField,
+            SelectField,
+            StringField,
+            SubmitField,
+        )
         _logger.debug(str(("Admin method environ:",environ)))
 
         # some things do not work w/ Lynx browser
@@ -384,6 +393,11 @@ class web_class():
             passdata = HiddenField()
             # turn the form object into an html form
             def get_html(self,action,tableheader):
+                # convert a field to just text plus a hidden field for the flags.justhid
+                def txt2hid(self,f):
+                    new = HiddenField(name=f.name,id=f.id,_form=self)
+                    new.process_data(f.data)
+                    return (f.data or "")+str(new)
                 main_fields = [getattr(self,"button1",None), getattr(self,"button2",None), self.nextpage, self.thispage, self.passdata]
                 r = b'''<form method="post" action="''' + bytes(action,'UTF-8') + b'">\n'
                 # all the required fields for the top
@@ -393,14 +407,15 @@ class web_class():
                 htable.header = tableheader
                 # loop all the remaining fields
                 for i in list(filter(lambda z: z not in main_fields,self)):
-                            # should be a single FieldList or multiple other fields
-                    if type(i) == FieldList:
+                    # should be a single FieldList or multiple other fields
+                    if type(i) is FieldList:
                     # loop all data row entries
                         for e in i.entries:
-                        # if 1st row, populate html table headers w/ labels (except hidden)
-                            if tableheader: htable.field_names = [" "*x if d.type == "HiddenField" or d.type == "SubmitField" else str(d.label) for d,x in zip(e,range(32))]
-                            # add all fields to html table row (except if flag set, just do the fields data)
-                            htable.add_row([d.data if d.flags.justtxt else str(d) for d in e])
+                            # if 1st row, populate html table headers w/ labels (except hidden)
+                            if tableheader:
+                                htable.field_names = [" "*x if d.type == "HiddenField" or d.type == "SubmitField" else str(d.label) for d,x in zip(e,range(32))]
+                            # add all fields to html table row (except if flags.justtxt set, just do the fields data)
+                            htable.add_row([d.data if d.flags.justtxt else txt2hid(self,d) if d.flags.justhid else str(d) for d in e])
                             # only the first time
                             tableheader = False
                     else:
@@ -442,7 +457,8 @@ class web_class():
                     _logger.debug(str(("Admin method: menu selected.")))
                     # map the clicked button to a form/page to load
                     for f,m in [("Linphone","linmenu"),("Voip.ms","voipmsmenu"),("Wizard","wizmenu-1"),("Advanced","advmenu")]:
-                        if f in qs.values(): qs["nextpage"] = m
+                        if f in qs.values():
+                            qs["nextpage"] = m
 
                 case "advmenu":
                     _logger.debug(str(("Admin method: menu selected.")))
@@ -459,7 +475,8 @@ class web_class():
                         ("Set_Admin_Password","advmenu-setadminpassword"),
                         ("Display_SQLite_data","advmenu-dumpdatabase"),
                         ("Display_Live_Logs","advmenu-displaylivelogs")]:
-                        if f in qs.values(): qs["nextpage"] = m
+                        if f in qs.values():
+                            qs["nextpage"] = m
 
                 case "configmenu":
                     if "Cancel" in qs.values():
@@ -469,7 +486,7 @@ class web_class():
                     try:
                         n = qs["thispage"].split("-")[1]
                         n = int(n)
-                    except:
+                    except (ValueError, IndexError):
                         n = 0
                     if "Cancel" in qs.values():
                         qs["nextpage"] = "mainmenu" if n < 2 else "wizmenu-" + str(n-1)
@@ -497,9 +514,8 @@ class web_class():
                         if qs[key] == "Client Config":
                             usernamekey = key.replace('client_config','username')
                             username = qs.get(usernamekey,"")
-                            qs["ha1"] = "y"
-                            qs["index"] = "0"
-                            qs["account"] = username
+                            qs["config-0-ha1"] = "y"
+                            qs["config-0-username"] = username
                             qs["nextpage"] = "configmenu"
                         if qs[key] == "Cancel":
                             # go back to main menu
@@ -666,7 +682,7 @@ class web_class():
                             try:
                                 j = json.loads(r.stdout)
                                 qs["loglevel"]=str(j["Processes"][0]["Log level"])
-                            except:
+                            except Exception as e:
                                 msg += ('Error: The "opensips-cli mi log_level" command return '+str(r.returncode)+'.<br>').encode('utf_8')
                             qs["nextpage"] = "advmenu-setloglevel"
 
@@ -756,9 +772,9 @@ class web_class():
                             curlvlstr = "WARNING"
                             self.ask_q.put(("GetLogLevel",))
                             curlvl = self.loglvl_q.get()
-                            for l in cfg.loglevels.keys():
-                                if curlvl == cfg.loglevels[l]:
-                                    curlvlstr = l
+                            for lvl in cfg.loglevels.keys():
+                                if curlvl == cfg.loglevels[lvl]:
+                                    curlvlstr = lvl
                             try:
                                 # hit the apply button?
                                 if qs.get('Apply',"") == 'Apply':
@@ -810,8 +826,8 @@ class web_class():
                             try:
                                 j = json.loads(r.stdout)
                                 qs["xloglevel"]=str(j["xLog Level"])
-                            except:
-                                msg += ('Error: The "opensips-cli mi xlog_level" command return '+str(r.returncode)+'.<br>').encode('utf_8')
+                            except Exception as e:
+                                msg += ('Error: The "opensips-cli mi xlog_level" command return '+str(r.returncode)+str(e)+'.<br>').encode('utf_8')
                             qs["nextpage"] = "advmenu-setxloglevel"
                         case "displaylivelogs":
                             # hit the apply button?
@@ -831,7 +847,7 @@ class web_class():
                             # get the values from qs or defaults placed in qs
                             try:
                                 minutes = int(qs['LiveLogDuration'])
-                            except:
+                            except ValueError:
                                 minutes = 5
                                 qs['LiveLogDuration'] = str(minutes)
                             lines = qs.get('IncludeLastLines','100')
@@ -934,16 +950,15 @@ function setCaretToPos(input, pos) {
                         del form.button2
 
                 case "configmenu":
-                    import uuid
-                    from pathlib import Path
-                    import qrcode
-                    import xml.etree.ElementTree as ET
                     import copy
                     import hashlib
                     import urllib.parse
+                    import uuid
+                    import xml.etree.ElementTree as ET
+                    from pathlib import Path
+                    import qrcode
                     # namespace for client config xml
                     ET.register_namespace("", "http://www.linphone.org/xsds/lpconfig.xsd")
-
                     # we will come back here if param changed
                     qs["thispage"] = "configmenu"
                     qs["nextpage"] = "configmenu"
@@ -957,21 +972,52 @@ function setCaretToPos(input, pos) {
                     webpath = cfg.get("web","protocol")+"://"+dnsname+":"+str(cfg.get("web","webport"))+cfg.get("web","pathget")+"/"
                     # open the db
                     conn = get_dbconn()
-                    if conn is None: raise Exception("MMSGate db connection failed.")
+                    if conn is None:
+                        raise Exception("MMSGate db connection failed.")
                     pagetitle = "- Client Config".encode('utf_8')
-                    account = qs["account"]
-                    # get account details
+                    account = qs["config-0-username"]
+                    # get 1st account details
+                    accts = []
+                    linacct = None
                     try:
-                        apw, cid, auuid, linuser, linpw, lindom, regexp = conn.execute("SELECT s.password, callerid, uuid, username, l.password, l.domain, max_expiry "+
+                        indx = 0
+                        acct = {}
+                        lacct = {}
+                        acct["acct"] = account
+                        acct["apw"],acct["cid"],auuid,lacct["acct"],lacct["apw"],lacct["dom"],acct["regexp"] = conn.execute("SELECT s.password, callerid, uuid, username, l.password, l.domain, max_expiry "+
                           "FROM subacct s LEFT JOIN linphone l ON linphone = username "+
                           "WHERE account=?;",(account,)).fetchone()
+                        # new unique ref for account config
+                        acct["newref"] = ''.join(secrets.choice(string.ascii_letters + string.digits) for i in range(12))
+                        accts += [acct]
+                        if lacct["acct"] is not None:
+                            indx += 1
+                            linacct = lacct["acct"]
+                            accts += [lacct]
+                            acct = {}
+                            for acct["acct"], acct["apw"], acct["cid"], acct["regexp"] in conn.execute("SELECT account, password, callerid, max_expiry FROM subacct "+
+                              "WHERE tls != 0 AND ext != '' AND account != ? AND linphone = ? AND callerid IS NOT NULL;",(account,linacct)).fetchall():
+                                accts += [acct]
+                                acct = {}
+                        else:
+                            indx += 1
+                            acct = {}
+                            while qs.get("config-"+str(indx)+"-username","") != "":
+                                account = qs.get("config-"+str(indx)+"-username","")
+                                acct["acct"], acct["apw"], acct["cid"], acct["regexp"] = conn.execute("SELECT account, password, callerid, max_expiry FROM subacct "+
+                                  "WHERE ext != '' AND account == ? AND callerid IS NOT NULL;",(account,)).fetchone()
+                                accts += [acct]
+                                indx += 1
+                                acct = {}
+                        _logger.debug(str(("configmenu: Done init accts[]",accts)))
                     except Exception as e:
-                        msg += ("Error: "+str(e)+"<br>").encode('utf_8')
+                        PrintException(e)
+                        msg += ("Error getting account info: "+str(e)+"<br>").encode('utf_8')
                     msg += b'<br>'
-
                     # need a unique uuid for each subacct to store config.
                     if (auuid is None):
                         auuid = str(uuid.uuid4())
+                        # remember it
                         conn.execute("UPDATE subacct SET uuid = ? WHERE account=?;",(auuid,account))
                         conn.commit()
                     # build paths
@@ -981,172 +1027,187 @@ function setCaretToPos(input, pos) {
                     # get localpaths and urls
                     acctdestfile = acctdestdir + account + ".xml"
                     acctwebfile = acctwebpath + account + ".xml"
-                    acctdestfileqr = acctdestdir + account + ".png"
-                    acctwebfileqr = acctwebpath + account + ".png"
+                    acctdestfileqr = acctdestdir + account + "-cfg.png"
+                    acctwebfileqr = acctwebpath + account + "-cfg.png"
                     fileuploadpath = cfg.get("web","protocol")+"://"+dnsname+":"+str(cfg.get("web","webport"))+cfg.get("web","pathfile")
-
-                    # new unique ref for account config
-                    newref = ''.join(secrets.choice(string.ascii_letters + string.digits) for i in range(12))
-
-                    pop = ""
-                    hostname = ""
-                    ciddid = {}
-                    popdid = {}
-                    # get DID info for the sub account's CallerID.
+                    # cache the data
+                    if 'ciddids' not in vars():
+                        ciddids = {}
+                    if 'popdids' not in vars():
+                        popdids = {}
+                    indx = 0
+                    # get DID host and other info for the sub accounts.
                     try:
-                        url="https://voip.ms/api/v1/rest.php?api_username={}&api_password={}&method=getDIDsInfo&did={}"
-                        if apiid == "" or apipw == "": raise RuntimeError("apiid or apipw not configured.")
-                        r = requests.get(url.format(apiid,urllib.parse.quote(apipw),cid))
-                        _logger.debug(str(("REST getDIDsInfo ret:",str(r.text))))
-                        if is_json(r.text):
-                            rslt = r.json()
-                            if rslt["status"] == "success":
-                                for did in rslt["dids"]:
-                                    if did["did"] == cid:
-                                        pop = did["pop"]
-                                        ciddid = did
+                        for acct in accts:
+                            ciddid = acct.get("cid",None)
+                            if ciddid is not None:
+                                if ciddid not in ciddids:
+                                    url="https://voip.ms/api/v1/rest.php?api_username={}&api_password={}&method=getDIDsInfo&did={}"
+                                    if apiid == "" or apipw == "":
+                                        raise RuntimeError("apiid or apipw not configured.")
+                                    r = requests.get(url.format(apiid,urllib.parse.quote(apipw),ciddid))
+                                    _logger.debug(str(("REST getDIDsInfo ret:",str(r.text))))
+                                    if is_json(r.text):
+                                        rslt = r.json()
+                                        if rslt["status"] == "success":
+                                            for did in rslt["dids"]:
+                                                ciddids[did["did"]] = did
+                                        else:
+                                            raise RuntimeError(rslt["status"])
+                                    else:
+                                        raise RuntimeError("Data returned from Voip.ms API not in JSON format. "+str((r.txt)))
+                                acct["pop"] = ciddids[ciddid]["pop"]
+                                acct["description"] = ciddids[ciddid]["description"]
+                                if acct["pop"] not in popdids:
+                                    # get the server info the the DID's PoP.  need the host name.
+                                    url="https://voip.ms/api/v1/rest.php?api_username={}&api_password={}&method=getServersInfo&server_pop={}"
+                                    if apiid == "" or apipw == "":
+                                        raise RuntimeError("apiid or apipw not configured.")
+                                    r = requests.get(url.format(apiid,urllib.parse.quote(apipw),acct["pop"]))
+                                    _logger.debug(str(("REST getServersInfo ret:",str(r.text))))
+                                    if is_json(r.text):
+                                        rslt = r.json()
+                                        if rslt["status"] == "success":
+                                            for srv in rslt["servers"]:
+                                                popdids[srv["server_pop"]] = srv
+                                        else:
+                                            raise RuntimeError(rslt["status"])
+                                    else:
+                                        raise RuntimeError("Data returned from Voip.ms API not in JSON format. "+str((r.txt)))
+                                acct["dom"] = popdids[acct["pop"]]["server_hostname"]
+                                acct["popname"] = popdids[acct["pop"]]["server_name"]
+                            # include ha1 in xml config file?
+                            if "config-"+str(indx)+"-username" not in qs or qs.get("config-"+str(indx)+"-ha1","n") == "y":
+                              m = hashlib.md5()
+                              m.update((acct["acct"]+":"+acct["dom"]+":"+acct["apw"]).encode('utf-8'))
+                              acct["ha1"] = m.hexdigest()
+                            indx += 1
+                        _logger.debug(str(("configmenu: Done populate accts[]",accts)))
+                    except Exception as e:
+                        PrintException(e)
+                        msg += ("Error: "+str(e)+"<br>").encode('utf_8')
+                    # make fresh contacts vcard
+                    vf = open(acctdestdir+"contacts.vcard","w+")
+                    for acct, cid, ext, icnam, desc in conn.execute("SELECT account, callerid, ext, internal_cnam, description FROM subacct WHERE ext != '' ORDER BY account").fetchall():
+                        if (desc == ""):
+                            if (icnam == ""):
+                                fn = ext
                             else:
-                                raise RuntimeError(rslt["status"])
+                                fn = icnam
                         else:
-                            raise RuntimeError("Data returned from Voip.ms API not in JSON format. "+str((r.txt)))
-                    except Exception as e:
-                        msg += ("Error getting DIDs: "+str(e)+".<br>").encode('utf_8')
-
-                    # get the server info the the DID's PoP.  need the host name.
-                    try:
-                        url="https://voip.ms/api/v1/rest.php?api_username={}&api_password={}&method=getServersInfo&server_pop={}"
-                        if apiid == "" or apipw == "": raise RuntimeError("apiid or apipw not configured.")
-                        r = requests.get(url.format(apiid,urllib.parse.quote(apipw),pop))
-                        _logger.debug(str(("REST getServersInfo ret:",str(r.text))))
-                        if is_json(r.text):
-                            rslt = r.json()
-                            if rslt["status"] == "success":
-                                for srv in rslt["servers"]:
-                                    if srv["server_pop"] == pop:
-                                        hostname = srv["server_hostname"]
-                                        popdid = srv
-                        else:
-                            raise RuntimeError("Data returned from Voip.ms API not in JSON format. "+str((r.txt)))
-                    except Exception as e:
-                        msg += ("Error getting list of POPs: "+str(e)+".<br>").encode('utf_8')
-
-                    msg += ("XML Config URL: <a href='"+acctwebfile+"' target='_blank'>"+acctwebfile+"</a><br>").encode('utf_8')
-                    msg += ("QR Config URL: <a href='"+acctwebfileqr+"' target='_blank'>"+acctwebfileqr+"</a><br>").encode('utf_8')
-                    msg += ("<img src='"+acctwebfileqr+"' width='33%' height='33%' /><br>").encode('utf_8')
-
-                    # for display of some details and options
-                    class ConfigForm(MainForm):
-                        account = StringField("Sub account",render_kw={'readonly':''})
+                            fn = desc
+                        vf.write("BEGIN:VCARD\nVERSION:4.0\nKIND:individual\nIMPP:{0}\nFN:{1}\nEND:VCARD\n".format("sips:"+ext+"@"+accts[0]["dom"],fn))
+                    # get list of avail accts for form choices later.
+                    avail_accts = conn.execute("SELECT account, account FROM subacct "+
+                      "WHERE callerid IS NOT NULL AND tls != 0 AND ext != '' AND linphone IS NULL AND account NOT IN (" + ', '.join(["'"+a["acct"]+"'" for a in accts]) + ") ORDER BY account").fetchall()
+                    vf.close()
+                    conn.close()
+                    msg += ("Generated vcard contacts list for including in XML config: <a href='" + acctwebpath + "contacts.vcard'>contacts.vcard</a><br>" ).encode('utf_8')
+                    # these 2 classes are for client config form
+                    class SubConfigForm(Form):
+                        username = SelectField("SIP Account")
+                        domain = StringField("Domian/Server")
                         ha1 = BooleanField("Include encrypted password")
-                        index = SelectField("Import starting at index",choices=[("0","0 - default"),("1","1"),("2","2"),("3","3"),("4","4"),("5","5"),("6","6"),("7","7"),("8","8"),("9","9")])
-                        linphone = StringField("Linphone account",render_kw={'readonly':''})
-                        didcid = StringField("DID/CallerID",render_kw={'readonly':''})
-                        diddesc = StringField("DID description",render_kw={'readonly':''})
-                        pophost = StringField("PoP host",render_kw={'readonly':''})
-                        popname = StringField("PoP name",render_kw={'readonly':''})
-
-                    qs["linphone"] = linuser
-                    qs["didcid"] = cid
-                    qs["diddesc"] = ciddid.get("description","")
-                    qs["pophost"] = hostname
-                    qs["popname"] = popdid.get("server_name","")
-
+                        callerid = StringField("DID/CallerID")
+                        diddesc = StringField("DID description")
+                        popname = StringField("PoP name")
+                    class ConfigForm(MainForm):
+                        config = FieldList(FormField(SubConfigForm))
+                    # setup form
                     form = ConfigForm(data=qs)
                     form.button1.label.text = "Refresh"
                     form.button2.label.text = "Cancel"
-
-                    # maybe calc ha1
-                    if qs.get("ha1","n") == "y":
-                        m = hashlib.md5()
-                        m.update((account+":"+hostname+":"+apw).encode('utf-8'))
-                        ha1 = m.hexdigest()
-                    else:
-                        ha1 = ""
-
-                    # proxy index
-                    i0 = qs.get("index","0")
-                    i1 = str(int(i0)+1)
-
+                    tableheader = True
+                    # populate rows in form
+                    for acct in accts:
+                        # populate rows 
+                        f = form.config.append_entry({"username":acct["acct"], "domain":acct["dom"], "ha1":"y" if "ha1" in acct else None, 
+                          "callerid":acct.get("cid",""), "diddesc":acct.get("description",""), "popname":acct.get("popname","")})
+                        # it's a select field, need the choice tomatch the data
+                        f["username"].choices=[(acct["acct"],acct["acct"])]
+                        # 
+                        for fld in ["username","domain","callerid","diddesc","popname"]:
+                            f[fld].flags.justhid = True
+                    if linacct is None:
+                        f = form.config.append_entry({"domain":"","ha1":"y","callerid":"", "diddesc":"", "popname":""})
+                        f["username"].choices=[("","")]+avail_accts
+                        for fld in ["domain","callerid","diddesc","popname"]:
+                            f[fld].flags.justhid = True
+                        
+                    # build the xml config file
                     root = ET.fromstring('<config xmlns="http://www.linphone.org/xsds/lpconfig.xsd" '+
                         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.linphone.org/xsds/lpconfig.xsd lpconfig.xsd"></config>')
-                    # start w/ config for linphone account
-                    if linuser:
-                        # get full config for linphone user w/ auth
-                        rslt = requests.get("https://subscribe.linphone.org/provisioning/me",headers={"from":"sip:"+linuser+"@"+lindom,
-                          "x-linphone-provisioning":""},auth=requests.auth.HTTPDigestAuth(linuser, linpw))
-                    else:
-                        # get generic config for a linphone acct
-                        rslt = requests.get("https://subscribe.linphone.org/provisioning")
+                    # new ref for nat_policy
+                    newref = ''.join(secrets.choice(string.ascii_letters + string.digits) for i in range(12))
+                    # get generic config for a linphone acct
+                    rslt = requests.get("https://subscribe.linphone.org/provisioning")
                     if rslt.status_code == 200:
                         oldroot = ET.fromstring(rslt.text)
                         # clean up xml and copy over to root, remove dup sections and unwanted settings
                         for child in oldroot:
                             newchild = root.find("*[@name='"+child.attrib["name"]+"']")
-                            if not newchild:
+                            if newchild is None:
                                 newchild = root.makeelement("section",{"name":child.attrib["name"]})
                                 root.append(newchild)
                             for gchild in child:
                                 if gchild.attrib["name"] not in ["quality_reporting_collector","conference_factory_uri","audio_video_conference_factory_uri","lime_server_url","rls_uri"]:
                                     newgchild = copy.deepcopy(gchild)
                                     newchild.append(newgchild)
-
-                        # if generic, need a few extra elements for auth
-                        if not linuser:
-                            auth = root.makeelement("section",{"name":"auth_info_0"})
-                            for n,v in [("username",""),("domain",""),("realm",""),("ha1",""),("algorithm","MD5")]:
-                                e = root.makeelement("entry",{"name":n,"overwrite":"true"})
-                                e.text = v
-                                auth.append(e)
-                            root.append(auth)
-                        # edit it and save original linphone account config for later
+                        # for generic, need a few extra elements for auth
+                        auth = root.makeelement("section",{"name":"auth_info_0"})
+                        for n,v in [("username",""),("domain",""),("realm",""),("ha1",""),("algorithm","MD5")]:
+                            e = root.makeelement("entry",{"name":n,"overwrite":"true"})
+                            e.text = v
+                            auth.append(e)
+                        root.append(auth)
+                        # edit it and save account config (proxy and auth_info) for later
                         for child in root:
+                            if child.attrib["name"] == "proxy_0":
+                                # generic config, need a few extra elems
+                                for n in ["reg_proxy","reg_route","realm","nat_policy_ref"]:
+                                    e = root.makeelement("entry",{"name":n,"overwrite":"true"})
+                                    child.append(e)
+                                for e in child.findall("*[@name='quality_reporting_enabled']"):
+                                    e.text = "0"
+                                for e in child.findall("*[@name='publish']"):
+                                    e.text = "0"
+                                for e in child.findall("*[@name='reg_proxy']"):
+                                    e.text = "<sip:" + dnsname + ";transport=tls>"
+                                for e in child.findall("*[@name='reg_route']"):
+                                    e.text = "<sip:" + dnsname + ";transport=tls>"
+                                for e in child.findall("*[@name='nat_policy_ref']"):
+                                    e.text = newref
+                                originalproxy = copy.deepcopy(child)
+                                root.remove(child)
+                            if child.attrib["name"] == "auth_info_0":
+                                originalauthinfo = copy.deepcopy(child)
+                                root.remove(child)
+                            if child.attrib["name"] == "nat_policy_0":
+                                for e in child.findall("*[@name='stun_server']"):
+                                    e.text = "stun.linphone.org"
                             if child.attrib["name"] == "misc":
-                                for e in child.findall("*[@name='contacts-vcard-list']"): e.text = acctwebpath + "contacts.vcard"
+                                for e in child.findall("*[@name='contacts-vcard-list']"):
+                                    e.text = acctwebpath + "contacts.vcard"
                                 e = child.makeelement("entry",{"name":"hide_chat_rooms_from_removed_proxies","overwrite":"true"})
                                 e.text = "0"
                                 child.append(e)
-                            if child.attrib["name"] == "proxy_0":
-                                # if generic config, need a few extra elems
-                                if not linuser:
-                                    for n in ["reg_proxy","reg_route","realm"]:
-                                        e = root.makeelement("entry",{"name":n,"overwrite":"true"})
-                                        child.append(e)
-                                child.set("name","proxy_"+i0)
-                                # only do the mod if we are using a linphone acct
-                                if linuser:
-                                    for e in child.findall("*[@name='reg_identity']"): e.text = '"' + linuser + '" <sip:' + linuser + '@' + lindom + ';transport=tls>'
-                                for e in child.findall("*[@name='quality_reporting_enabled']"): e.text = "0"
-                                for e in child.findall("*[@name='publish']"): e.text = "0"
-                                for e in child.findall("*[@name='reg_proxy']"): e.text = "<sip:" + dnsname + ";transport=tls>"
-                                for e in child.findall("*[@name='reg_route']"): e.text = "<sip:" + dnsname + ";transport=tls>"
-                                originalproxy1 = copy.deepcopy(child)
-                                for e in child.findall("*[@name='reg_identity']"): e.text = '"' + account + '" <sips:' + account + '@' + hostname + '>'
-                                for e in child.findall("*[@name='realm']"): e.text = hostname
-                                for e in child.findall("*[@name='reg_expires']"): e.text = regexp
-                            if child.attrib["name"] == "auth_info_0":
-                                child.set("name","auth_info_"+i0)
-                                originalauthinfo1 = copy.deepcopy(child)
-                                for e in child.findall("*[@name='username']"): e.text = account
-                                for e in child.findall("*[@name='domain']"): e.text = hostname
-                                for e in child.findall("*[@name='realm']"): e.text = hostname
-                                for e in child.findall("*[@name='ha1']"): e.text = ha1
-                            if child.attrib["name"] == "nat_policy_0":
-                                child.set("name","nat_policy_"+i0)
-                                originalnatpolicy1 = copy.deepcopy(child)
-                                for e in child.findall("*[@name='stun_server']"): e.text = "stun.linphone.org"
-                            if child.attrib["name"] == "misc":
-                                for e in child.findall("*[@name='file_transfer_server_url']"): e.text = fileuploadpath
-                                for e in child.findall("*[@name='log_collection_upload_server_url']"): e.text = fileuploadpath
+                                for e in child.findall("*[@name='file_transfer_server_url']"):
+                                    e.text = fileuploadpath
+                                for e in child.findall("*[@name='log_collection_upload_server_url']"):
+                                    e.text = fileuploadpath
                                 # config url for loading xml at each start... including xml causes issues w/ default_proxy
-                                for e in child.findall("*[@name='config-uri']"): e.text = ""
+                                for e in child.findall("*[@name='config-uri']"):
+                                    e.text = ""
                             if child.attrib["name"] == "sip":
-                                for e in child.findall("*[@name='media_encryption']"): e.text = "srtp"
-                                for e in child.findall("*[@name='media_encryption_mandatory']"): e.text = "1"
+                                for e in child.findall("*[@name='media_encryption']"):
+                                    e.text = "srtp"
+                                for e in child.findall("*[@name='media_encryption_mandatory']"):
+                                    e.text = "1"
                                 e = child.makeelement("entry",{"name":"im_notif_policy","overwrite":"true"})
                                 e.text = "none"
                                 child.append(e)
                                 e = child.makeelement("entry",{"name":"default_proxy","overwrite":"true"})
-                                e.text = i0
+                                e.text = "0"
                                 child.append(e)
                                 # no IPv6
                                 e = child.makeelement("entry",{"name":"use_ipv6","overwrite":"true"})
@@ -1156,41 +1217,51 @@ function setCaretToPos(input, pos) {
                                 e = child.makeelement("entry",{"name":"publish_presence","overwrite":"true"})
                                 e.text = "0"
                                 child.append(e)
-                        if linuser:
-                            # add linphone account back in as 2nd account
-                            originalnatpolicy1.set("name","nat_policy_"+i1)
-                            for e in originalnatpolicy1.findall("*[@name='ref']"): e.text = newref
-                            root.append(originalnatpolicy1)
-                            originalauthinfo1.set("name","auth_info_"+i1)
-                            root.append(originalauthinfo1)
-                            originalproxy1.set("name","proxy_"+i1)
-                            for e in originalproxy1.findall("*[@name='nat_policy_ref']"): e.text = newref
-                            root.append(originalproxy1)
-                        # save config file w/ both account
+                        # add auth_indo and proxy back in for each account 
+                        indx = 0
+                        for acct in accts:
+                            newauthinfo = copy.deepcopy(originalauthinfo)
+                            newauthinfo.set("name","auth_info_"+str(indx))
+                            for e in newauthinfo.findall("*[@name='username']"):
+                                e.text = acct["acct"]
+                            for e in newauthinfo.findall("*[@name='domain']"):
+                                e.text = acct["dom"]
+                            for e in newauthinfo.findall("*[@name='realm']"):
+                                e.text = acct["dom"]
+                            for e in newauthinfo.findall("*[@name='ha1']"):
+                                e.text = acct.get("ha1","")
+                            root.append(newauthinfo)
+                            newproxy = copy.deepcopy(originalproxy)
+                            newproxy.set("name","proxy_"+str(indx))
+                            for e in newproxy.findall("*[@name='reg_identity']"):
+                                if acct["dom"] == "sip.linphone.org":
+                                    e.text = '"' + acct["acct"] + '" <sip:' + acct["acct"] + '@' + acct["dom"] + ';transport=tls>'
+                                else:
+                                    e.text = '"' + acct["acct"] + '" <sips:' + acct["acct"] + '@' + acct["dom"] + '>'
+                            for e in newproxy.findall("*[@name='realm']"):
+                                e.text = acct["dom"]
+                            if acct.get("regexp",0) != 0:
+                                for e in newproxy.findall("*[@name='reg_expires']"):
+                                    e.text = acct["regexp"]
+                            root.append(newproxy)
+                            indx += 1
+                        msg += ("Built XML config for accounts: " + ', '.join([a["acct"] for a in accts]) + "<br>").encode('utf_8')
+                        # save config file w/ all accounts
                         tree = ET.ElementTree(root)
                         tree.write(acctdestfile)
+                        # make qr code 
                         img = qrcode.make(acctwebfile)
                         img.save(acctdestfileqr)
-                        # make fresh contacts vcard
-                        vf = open(acctdestdir+"contacts.vcard","w+")
-                        for acct, cid, ext, icnam, desc in conn.execute("SELECT account, callerid, ext, internal_cnam, description FROM subacct WHERE ext != '' AND tls = '1' ORDER BY account").fetchall():
-                            if (desc == ""):
-                                if (icnam == ""):
-                                    fn = ext
-                                else:
-                                    fn = icnam
-                            else:
-                                fn = desc
-                            vf.write("BEGIN:VCARD\nVERSION:4.0\nKIND:individual\nIMPP:{0}\nFN:{1}\nEND:VCARD\n".format("sips:"+ext+"@"+hostname,fn))
-                        vf.close()
+                        msg += ("XML Config URL: <a href='"+acctwebfile+"' target='_blank'>"+acctwebfile+"</a><br>").encode('utf_8')
+                        msg += ("QR Code Config URL: <a href='"+acctwebfileqr+"' target='_blank'>"+acctwebfileqr+"</a><br>").encode('utf_8')
+                        msg += ("<img src='"+acctwebfileqr+"' width='33%' height='33%' /><br>").encode('utf_8')
                     else:
                         msg += ("Error: Bad return code from https://subscribe.linphone.org/provisioning: "+str(rslt.status_code)+"<br>").encode('utf_8')
-                    conn.close()
                 case "wizmenu":
                     try:
                         n = qs["nextpage"].split("-")[1]
                         n = int(n)
-                    except:
+                    except (ValueError, IndexError):
                         n = 0
                     pagetitle = "- Wizard".encode('utf_8')
                     qs["thispage"] = "wizmenu-" + str(n)
@@ -1329,7 +1400,8 @@ function setCaretToPos(input, pos) {
                             dnsname = get_global("DNSNAME")
                             qs["ddns_name"] = dnsname
                             apikey = qs.get("api_key","")
-                            if apikey == "": apikey = get_global("DNSTOKEN")
+                            if apikey == "":
+                                apikey = get_global("DNSTOKEN")
                             if apikey != "":
                                 rslt = requests.get("https://api.dynu.com/v2/dns",headers={"accept":"application/json","API-Key":apikey})
                                 if rslt.status_code != 200 or not is_json(rslt.text):
@@ -1357,7 +1429,8 @@ function setCaretToPos(input, pos) {
                         # cert intro
                         case 9:
                             dnsname = qs.get("ddns_name","")
-                            if dnsname == "": dnsname = get_global("DNSNAME")
+                            if dnsname == "":
+                                dnsname = get_global("DNSNAME")
                             if dnsname != "":
                                 set_global("DNSNAME",dnsname)
                                 msg += ("The DDNS name " + dnsname + " was selected and will be used.<br>").encode('utf_8')
@@ -1374,7 +1447,8 @@ function setCaretToPos(input, pos) {
                         # cert generate
                         case 10:
                             email = qs.get("email","")
-                            if email == "": email = get_global("EMAIL")
+                            if email == "":
+                                email = get_global("EMAIL")
                             if email != "":
                                 msg += ("The eMail address " + email + " was entered and will be used.<br>").encode('utf_8')
                                 set_global("EMAIL",email)
@@ -1408,9 +1482,11 @@ function setCaretToPos(input, pos) {
                         case 12:
                             import urllib.parse
                             apiid = qs.get("voipid","")
-                            if apiid == "": apiid = get_global("APIID")
+                            if apiid == "":
+                                apiid = get_global("APIID")
                             apipw = qs.get("voippw","")
-                            if apipw == "": apipw = get_global("APIPW")
+                            if apipw == "":
+                                apipw = get_global("APIPW")
                             try:
                                 url="https://voip.ms/api/v1/rest.php?api_username={}&api_password={}&method=getSubAccounts"
                                 r = requests.get(url.format(apiid,urllib.parse.quote(apipw)))
@@ -1447,7 +1523,8 @@ function setCaretToPos(input, pos) {
                 case "voipmsmenu":
                     # open the db
                     conn = get_dbconn()
-                    if conn is None: raise Exception("MMSGate db connection failed.")
+                    if conn is None:
+                        raise Exception("MMSGate db connection failed.")
                     # create table/indexes if needed
                     init_linphonedb(conn)
                     try:
@@ -1459,7 +1536,8 @@ function setCaretToPos(input, pos) {
                             # update the SMS/MMS accepting and the linphone push notif acct
                             username,sms_mms,pushnotification = qs["tmpdata"]
                             sms_mms = 0 if sms_mms == "Ignore" else 1
-                            if pushnotification == "N/A": pushnotification = None
+                            if pushnotification == "N/A":
+                                pushnotification = None
                             try:
                             # update db
                                 conn.execute("UPDATE subacct SET smsmms = ?, linphone = ? WHERE account = ?;",
@@ -1477,8 +1555,7 @@ function setCaretToPos(input, pos) {
                             "CASE ext WHEN '' THEN 'null' ELSE ext END, CASE tls WHEN 0 THEN 'N/A' ELSE 'TLS' END, internal_cnam FROM subacct ORDER BY callerid,account;").fetchall()
                         _logger.debug(str(("Voip.ms select:",accts)))
                         # unused linphone accts for the PN select field
-                        choices = conn.execute("SELECT username,username FROM linphone LEFT JOIN subacct on linphone=username "+
-                          "WHERE activated = 1 AND account IS NULL ORDER BY username").fetchall()
+                        choices = conn.execute("SELECT username,username FROM linphone WHERE activated = 1 ORDER BY username").fetchall()
                         _logger.debug(str(("Voip.ms choices select:",choices)))
                         conn.close()
                         # for form display
@@ -1510,14 +1587,17 @@ function setCaretToPos(input, pos) {
                         tableheader = True
                         for subaccount, callerid, sms_mms, pushnotification, extension, encryption, internal_cnam in accts:
                             note = ""
-                            if encryption == "N/A": note+="Please enable 'Encrypted SIP Traffic' for sub account.  "
-                            if extension == "null": note+="Please enter an 'Internal Extension Number' for sub account.  "
-                            if not callerid: note+="Please select a DID for 'CallerID Number' for sub account.  "
+                            if encryption == "N/A":
+                                note+="Please enable 'Encrypted SIP Traffic' for sub account.  "
+                            if extension == "null":
+                                note+="Please enter an 'Internal Extension Number' for sub account.  "
+                            if not callerid:
+                                note+="Please select a DID for 'CallerID Number' for sub account.  "
                             f = form.voipms.append_entry({"subaccount":subaccount, "username":subaccount, "callerid":callerid, "sms_mms":sms_mms,
                               "pushnotification":pushnotification, "extension":extension, "encryption":encryption, "internal_cnam":internal_cnam, "note":note})
                             f["subaccount"].flags.justtxt = True
                             f["callerid"].flags.justtxt = True
-                            f["pushnotification"].choices = [("N/A","N/A")] + ([] if pushnotification == "N/A" else [(pushnotification,pushnotification)]) + choices
+                            f["pushnotification"].choices = [("N/A","N/A")] + choices
                             f["extension"].flags.justtxt = True
                             f["encryption"].flags.justtxt = True
                             f["internal_cnam"].flags.justtxt = True
@@ -1539,7 +1619,8 @@ function setCaretToPos(input, pos) {
                 case "linmenu":
                     # open the db
                     conn = get_dbconn()
-                    if conn is None: raise Exception("MMSGate db connection failed.")
+                    if conn is None:
+                        raise Exception("MMSGate db connection failed.")
                     # create table/indexes if needed
                     init_linphonedb(conn)
                     # email verify code?
@@ -1767,8 +1848,9 @@ def get_did_accts(conn,ask_q):
 
 # init subacct table w/ accts from voip.ms
 def init_subacctdb(conn):
-    import requests
     import urllib.parse
+
+    import requests
 
     # build tables if needed
     conn.execute("CREATE TABLE IF NOT EXISTS subacct (account TEXT UNIQUE, password TEXT, callerid TEXT, ext TEXT, smsmms INT DEFAULT 1, " +
@@ -1863,23 +1945,23 @@ def is_json(myjson):
     import json
     try:
         json.loads(myjson)
-    except ValueError as e:
+    except ValueError:
         return False
     return True
 
 # this function will query the IP addresses via "ip addr" amd and return json data.
 def get_ip():
-    import subprocess
     import json
+    import subprocess
     r = subprocess.run(["/scripts/getaddr.sh","-j"],capture_output=True)
     _logger.debug(str(("Admin method get_ip:",r)))
     return json.loads(r.stdout)
 
 # used for generic catch all exceptions
 def PrintException(e):
+    import linecache
     import traceback
     from io import StringIO
-    import linecache
     exc_type, exc_obj, tb = sys.exc_info()
     with StringIO("") as s:
         traceback.print_exception(e,file=s)
@@ -1900,7 +1982,6 @@ class db_class():
         import json
         import subprocess
         from urllib.parse import urlparse
-        from contextlib import redirect_stdout
         try:
             sp = subprocess.run(["opensips-cli","-x","mi","ul_show_contact","location",addr],timeout=10,capture_output=True)
             if sp.returncode == 0:
@@ -1927,20 +2008,19 @@ class db_class():
 
     # thread loops forever for db activity
     def queue_db(self):
+        import json
         import os
         import queue
         import sqlite3
-        from datetime import datetime, timedelta, UTC
-        import xml.etree.ElementTree as ET
         import subprocess
-        import json
+        from datetime import UTC, datetime, timedelta
         # try to open the db
         try:
             dbfile = os.path.expanduser(cfg.get("mmsgate","dbfile"))
             _logger.debug("DB setting "+cfg.get("mmsgate","dbfile")+" became "+dbfile)
             conn = sqlite3.connect(dbfile)
-        except:
-            _logger.error("Failed to open DB file: "+cfg.get("mmsgate","dbfile"))
+        except Exception as e:
+            _logger.error("Failed to open DB file: "+cfg.get("mmsgate","dbfile")+":"+str(e))
             exit()
         def unixtime(s):
             import time
@@ -1962,16 +2042,8 @@ class db_class():
         sql_update_status_dom_via_rowid = "UPDATE send_msgs SET sent_ts = unixtime(0),msgstatus = ?, todom = ?, fromdom = ?, trycnt = trycnt + 1 WHERE rowid = ?;"
         # note: msgstatus is in where clause twice to get sqlite to use sm_hs index.
         sql_insert_new = "INSERT INTO send_msgs(fromid,fromdom,toid,todom,message,direction,did,msgtype,msgid) VALUES(?,?,?,?,?,?,?,?,?);"
-        # query for stats
-        sql_stats = "SELECT direction as dir, 'Sent last 24h' as stat, COUNT(rowid) AS count FROM send_msgs WHERE msgstatus IN ('200','202') AND sent_ts > unixtime(-60*60*24) GROUP BY direction "+ \
-          "UNION "+ \
-          "SELECT direction as dir, 'Rcvd last 24h' as stat, COUNT(rowid) AS count FROM send_msgs WHERE init_ts > unixtime(-60*60*24) GROUP BY direction "+ \
-          "UNION "+ \
-          "SELECT direction as dir, 'Queue backlog' as stat, COUNT(rowid) AS count FROM send_msgs WHERE msgstatus not in ('200','202') GROUP BY direction;"
         # amount of time before trying to send again
         td_timeout = timedelta(minutes=1)
-        int_ext = {}
-        int_ext_id = {}
 
         try:
             # loop forever
@@ -1992,14 +2064,9 @@ class db_class():
                             if newtoid:
                                     # send it!
                                 if msgtype == "SMS":
-#                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
-#                                      "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: text/plain\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],timeout=30,capture_output=True)
                                     sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format("localhost"),
                                       "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: text/plain\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],timeout=30,capture_output=True)
                                 else:
-#                                    sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format(get_global("DNSNAME")),
-#                                      "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: application/vnd.gsma.rcs-ft-http+xml\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],
-#                                      timeout=30,capture_output=True)
                                     sp = subprocess.run(["opensips-cli","-x","mi","t_uac_dlg","method=MESSAGE","ruri=sips:{}@{};transport=tls".format(newtoid,newtodom),"next_hop=sips:{}".format("localhost"),
                                       "headers=To: sips:{}@{}\\r\\nFrom: sips:{}@{}\\r\\nContent-Type: application/vnd.gsma.rcs-ft-http+xml\\r\\n".format(newtoid,newtodom,fromid,newfromdom),"body={}".format(message)],
                                       timeout=30,capture_output=True)
@@ -2025,7 +2092,7 @@ class db_class():
                     if msgstatus != "QUEUED":
                         if msgstatus == "API ERR":
                             # time between retry will grow exponentially for issues w/ voip.ms
-                            if (datetime.now(UTC) - datetime.fromtimestamp(sent_ts,timezone.utc)) > (td_timeout * trycnt * trycnt):
+                            if (datetime.now(UTC) - datetime.fromtimestamp(sent_ts,UTC)) > (td_timeout * trycnt * trycnt):
                                 self.update_row_db(conn,sql_update_status_via_rowid,("QUEUED",rowid))
                         else:
                             # try again soon
@@ -2040,6 +2107,7 @@ class db_class():
                     if item[0] == "MsgNew":
                         mtype,fromid,fromdom,toid,todom,message,direction,did,msgtype,msgid = item
                         cnt = conn.execute(sql_insert_new,(fromid,fromdom,toid,todom,message,direction,did,msgtype,msgid))
+                        _logger.debug("Rows inserted: "+str(cnt))
                         conn.commit()
                     # shutdown?
                     if item[0] == "Done":
@@ -2169,8 +2237,8 @@ class config_class:
 
     # print out the default config file.  all the sections will appear but options will be commented out.  Also, descriptions will appear as comments.
     def print_default_config(self):
-        from io import StringIO
         import configparser
+        from io import StringIO
         self.configobj = configparser.ConfigParser()
         # populate the config obj w/ sections from descriptions
         for s in self.descriptions.keys():
@@ -2182,7 +2250,7 @@ class config_class:
                     # maybe with the default if available
                     try:
                         self.configobj[s][o] = self.defaults[s][o]
-                    except:
+                    except IndexError:
                         self.configobj[s][o] =  ""
         # write the config file to a string
         with StringIO("") as s:
@@ -2196,7 +2264,7 @@ class config_class:
             for o in self.descriptions[s].keys():
                 try:
                     cfgstr = cfgstr.replace("\n"+o+" = ","\n\n# "+self.descriptions[s][o]+"\n# Default is: "+self.defaults[s][o]+"\n#"+o+" = ")
-                except:
+                except IndexError:
                     cfgstr = cfgstr.replace("\n"+o+" = ","\n\n# "+self.descriptions[s][o]+"\n#"+o+" = ")
         # print final config file
         print(cfgstr)
@@ -2234,8 +2302,8 @@ class config_class:
             else:
                 self.loglvltext = self.get("mmsgate","logger")
             loglvl = self.loglevels[self.loglvltext]
-        except:
-            raise ValueError("Error: Bad MMSGate logging level.")
+        except Exception as e:
+            raise ValueError("Error: Bad MMSGate logging level. "+str(e))
         if self.exists("mmsgate","loggerfile"):
             log_format = "%(levelname)s %(asctime)s.%(msecs)03d %(process)d %(threadName)s %(filename)s.%(funcName)s %(message)s"
             logging.basicConfig(format=log_format, datefmt=date_fmt, level=loglvl, filename=os.path.expanduser(self.get("mmsgate","loggerfile")))
@@ -2252,8 +2320,8 @@ class config_class:
 
 # this is a new process that runs all the non-gunicorn threads
 def threads(ask_q,resp_q,loglvl_q):
-    import threading
     import signal
+    import threading
     threading.current_thread().name = "THREADS-MANAGER"
 
     # this is a thread to respond to multiprocessing queue requests from gunicorn processes
@@ -2290,7 +2358,8 @@ def threads(ask_q,resp_q,loglvl_q):
     # init the did_accts for 1st time
     try:
         conn = get_dbconn()
-        if conn is None: raise Exception("MMSGate db connection failed.")
+        if conn is None:
+            raise Exception("MMSGate db connection failed.")
         # create table/indexes if needed
         init_linphonedb(conn)
         init_subacctdb(conn)
@@ -2313,8 +2382,8 @@ def threads(ask_q,resp_q,loglvl_q):
                     _logger.error("Thread "+t.name+" has ended.")
                     raise
             time.sleep(1)
-    except:
-        pass
+    except Exception as e:
+        _logger.error("Ending thread monitor: "+str(e))
     # tell DB and other threads to exit
     for q in (db.db_q,):
         q.put_nowait(("Done",))

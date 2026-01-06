@@ -10,6 +10,17 @@ log() {
 source /etc/opensips/globalcfg.sh
 [ "$DEBUG" == "Y" ] && DBG=1
 
+# random run for cert renew?
+if crontab -l|grep /scripts/certs; then 
+  [ $DBG ] && log "Verts renew is already scheduled..."
+else 
+  [ $DBG ] && log "Scheduling certs renew."
+  M=$(perl -e 'print int(rand(60))')
+  H1=$(perl -e 'print int(rand(12))')
+  H2=$((H1+12))
+  { crontab -l; echo "$M $H1,$H2 * * * /scripts/certs.sh renew"; } | crontab -
+fi
+
 # db not yet exist?
 if [ ! -e $DBPATH ]; then
   # create db

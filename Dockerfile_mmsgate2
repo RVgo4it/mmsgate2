@@ -15,7 +15,7 @@ RUN	apt -y update && \
 	netcat-openbsd \
 	net-tools \
 	tor \
-        nano \
+	nano \
 	cron \
 	jq \
 	gunicorn \
@@ -73,23 +73,25 @@ RUN	useradd -ms /bin/bash opensips && \
 	echo 'opensips:notnot' | chpasswd
 
 # Configure user mmsgateadm, with sudo
-RUN     useradd -ms /bin/bash mmsgateadm && \
-        echo 'mmsgateadm:notnot' | chpasswd && \
-        echo 'mmsgateadm ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN	useradd -ms /bin/bash mmsgateadm && \
+	echo 'mmsgateadm:notnot' | chpasswd && \
+	echo 'mmsgateadm ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 COPY	--chown=root --chmod=755 mmsgate2/scripts/* /scripts/
 COPY	--chown=root --chmod=755 mmsgate2/globalcfg.txt mmsgate2/globalcfg.sh mmsgate2/opensips.cfg /etc/opensips/
 
+# cron new config location
 # have cron run preprocchk.sh every 10 minutes, dynudnschk.sh 5 minutes after that, and certs.sh twice a day at random time.
-# also, clean up media files (not xml config) over 90 days old once a day, 3 am
-# and clean up messages from over 30 days ago, sundays at 3:30 am
-# reconcile messages daily at 3:35 am
-# finally compact the databases sundays at 3:45 am and 3:55 am
-RUN	echo 'SHELL=/bin/bash' | crontab - && \
+# also, clean up media files (not xml config) over 90 days old once a day, 2 am
+# and clean up messages from over 30 days ago, sundays at 2:30 am
+# reconcile messages daily at 2:35 am
+# finally compact the databases sundays at 2:45 am and 2:55 am
+RUN	mv /var/spool/cron/crontabs /etc/opensips/ && \
+	ln -s /etc/opensips/crontabs /var/spool/cron && \
+	echo 'SHELL=/bin/bash' | crontab - && \
 	{ crontab -l; echo '*/10 * * * * . /etc/profile; /scripts/preprocchk.sh'; } | crontab - && \
-	{ crontab -l; echo '*/10 * * * * . /etc/profile; sleep 300; /scripts/dynudnschk.sh'; } | crontab - && \
-	{ crontab -l; SLEEPTIME=$(perl -e 'print int(rand(43200))'); echo "0 */12 * * * sleep $SLEEPTIME; /scripts/certs.sh renew"; } | crontab - && \
-	{ crontab -l; echo '0 2 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'*.xml'"'"' -delete'; } | crontab - && \
+	{ crontab -l; echo '5,15,25,35,45,55 * * * * . /etc/profile; /scripts/dynudnschk.sh'; } | crontab - && \
+	{ crontab -l; echo '0 2 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'contacts.vcard'"'"' ! -name '"'"'*.xml'"'"' ! -name '"'"'*-cfg.png'"'"' -delete'; } | crontab - && \
 	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
 	{ crontab -l; echo '35 2 * * * . /etc/opensips/globalcfg.sh; /scripts/mmsreconcile.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM"'; } | crontab - && \
 	{ crontab -l; echo '45 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
@@ -136,8 +138,8 @@ RUN	addgroup db && \
 RUN	/scripts/mmsgate.py --default-config > /etc/opensips/mmsgate.conf && \
 	chmod a+r /etc/opensips/*
 
-USER    mmsgateadm
-WORKDIR /home/mmsgateadm
+USER	mmsgateadm
+WORKDIR	/home/mmsgateadm
 
 # Startup config
 ENTRYPOINT	["/usr/bin/dumb-init", "--"]

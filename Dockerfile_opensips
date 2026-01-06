@@ -2,83 +2,83 @@
 
 ARG	UBUNTUVER="25.10"
 # This is for building opensips
-FROM    ubuntu:$UBUNTUVER AS build
+FROM	ubuntu:$UBUNTUVER AS build
 
-LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
+LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
 
 # Update and install dev env for opensips
-RUN     apt -y update && \
-        # Install common tools
-        apt -y install sudo \
-        vim \
-        wget \
-        file \
-        # Install development tools
-        make \
-        bison \
-        flex \
-        curl \
-        libcurl4t64 \
-        libcurl4-openssl-dev \
-        libssl-dev \
-        dpkg-dev \
-        debhelper \
-        libevent-dev \
-        libcurl4-openssl-dev \
-        libglib2.0-dev \
-        libhiredis-dev \
-        libpcre3-dev \
-        libssl-dev \
-        libxmlrpc-core-c3-dev \
-        markdown \
-        zlib1g-dev \
-        module-assistant \
-        dkms \
-        gettext \
-        libavcodec-dev \
-        libavfilter-dev \
-        libavformat-dev \
-        libjson-glib-dev \
-        libpcap-dev \
-        nfs-common \
-        libbencode-perl \
-        libcrypt-rijndael-perl \
-        libdigest-hmac-perl \
-        libio-socket-inet6-perl \
-        libsocket6-perl \
-        libmysqlclient-dev \
-        libconfuse-dev \
-        libdb-dev \
-        libexpat1-dev \
-        libmaxminddb-dev \
-        libjson-c-dev \
-        librdkafka-dev \
-        libldap2-dev \
-        liblua5.1-0-dev \
-        libmemcached-dev \
-        libmicrohttpd-dev \
-        libncurses5-dev \
-        libperl-dev \
-        libpq-dev \
-        librabbitmq-dev \
-        libradcli-dev \
-        libsctp-dev \
-        libsnmp-dev \
-        libsqlite3-dev \
-        libxml2-dev \
-        python-is-python3 \
-        python3-dev \
-        python-dev-is-python3 \
-        unixodbc-dev \
-        xsltproc \
-        git
+RUN	apt -y update && \
+	# Install common tools
+	apt -y install sudo \
+	vim \
+	wget \
+	file \
+	# Install development tools
+	make \
+	bison \
+	flex \
+	curl \
+	libcurl4t64 \
+	libcurl4-openssl-dev \
+	libssl-dev \
+	dpkg-dev \
+	debhelper \
+	libevent-dev \
+	libcurl4-openssl-dev \
+	libglib2.0-dev \
+	libhiredis-dev \
+	libpcre3-dev \
+	libssl-dev \
+	libxmlrpc-core-c3-dev \
+	markdown \
+	zlib1g-dev \
+	module-assistant \
+	dkms \
+	gettext \
+	libavcodec-dev \
+	libavfilter-dev \
+	libavformat-dev \
+	libjson-glib-dev \
+	libpcap-dev \
+	nfs-common \
+	libbencode-perl \
+	libcrypt-rijndael-perl \
+	libdigest-hmac-perl \
+	libio-socket-inet6-perl \
+	libsocket6-perl \
+	libmysqlclient-dev \
+	libconfuse-dev \
+	libdb-dev \
+	libexpat1-dev \
+	libmaxminddb-dev \
+	libjson-c-dev \
+	librdkafka-dev \
+	libldap2-dev \
+	liblua5.1-0-dev \
+	libmemcached-dev \
+	libmicrohttpd-dev \
+	libncurses5-dev \
+	libperl-dev \
+	libpq-dev \
+	librabbitmq-dev \
+	libradcli-dev \
+	libsctp-dev \
+	libsnmp-dev \
+	libsqlite3-dev \
+	libxml2-dev \
+	python-is-python3 \
+	python3-dev \
+	python-dev-is-python3 \
+	unixodbc-dev \
+	xsltproc \
+	git
 
 USER	root
 WORKDIR	/root
 
 # master or other releases
 ARG	BRANCH="3.6"
-RUN     git clone https://github.com/OpenSIPS/opensips.git --recursive -b ${BRANCH} ~/opensips
+RUN	git clone https://github.com/OpenSIPS/opensips.git --recursive -b ${BRANCH} ~/opensips
 
 # modules
 ARG	MODS="tls_wolfssl db_sqlite tls_openssl tls_mgm proto_tls sqlops presence xcap presence_xml json rest_client xml"
@@ -126,29 +126,29 @@ RUN	cd /usr/src/opensips-cli && \
 	rm -rf /usr/src/opensips-cli
 
 # This is the final image
-FROM    ubuntu:$UBUNTUVER
+FROM	ubuntu:$UBUNTUVER
 
-LABEL   org.opencontainers.image.authors="https://github.com/RVgo4it"
+LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
 
 # Update and install items needed for opensips
-RUN     apt -y update && \
-        apt -y upgrade && \
-        # Install common tools
-        apt -y install sudo \
-        iputils-ping \
-        iproute2 \
-        sqlite3 \
-        # Install all dependencies
-        python3 \
-        libmysqlclient24
+RUN	apt -y update && \
+	apt -y upgrade && \
+	# Install common tools
+	apt -y install sudo \
+	iputils-ping \
+	iproute2 \
+	sqlite3 \
+	# Install all dependencies
+	python3 \
+	libmysqlclient24
 
-        # Clean
-RUN     apt -y autoremove && \
-        apt -y clean
+# Clean
+RUN	apt -y autoremove && \
+	apt -y clean
 
 # need sopts for opensips
-RUN     mkdir -m=755 /etc/opensips && \
-        mkdir -m=777 /run/opensips
+RUN	mkdir -m=755 /etc/opensips && \
+	mkdir -m=777 /run/opensips
 
 # bring over the python virtual env
 COPY	--from=compile-image /opt/venv /opt/venv
@@ -156,11 +156,11 @@ ENV	PATH="/opt/venv/bin:$PATH"
 RUN	echo 'PATH=/opt/venv/bin:$PATH' >/etc/profile.d/opensips.sh
 
 # bring over opensips 
-COPY    --from=build /root/inst/etc/opensips/ /etc/opensips/
-COPY    --from=build /root/inst/sbin/ /usr/sbin/
-COPY    --from=build /root/inst/lib64/ /usr/lib64/
-COPY    --from=build /root/inst/lib/ /usr/lib/
-COPY    --from=build /root/inst/share/ /usr/share/
+COPY	--from=build /root/inst/etc/opensips/ /etc/opensips/
+COPY	--from=build /root/inst/sbin/ /usr/sbin/
+COPY	--from=build /root/inst/lib64/ /usr/lib64/
+COPY	--from=build /root/inst/lib/ /usr/lib/
+COPY	--from=build /root/inst/share/ /usr/share/
 
 USER	root
 WORKDIR	/root
