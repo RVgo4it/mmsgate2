@@ -1,0 +1,13 @@
+{{define "header"}}MMSGate Admin{{ .Title2 }}{{end}}
+{{ define "table" }}
+<table>
+    <tbody>
+        {{ range .CustomItems }}
+            <tr>
+                <td><input id="{{ .MenuName }}" name="{{ .MenuName }}" type="submit" value="{{ .MenuName }}"></td>
+                <td>{{ .MenuDesc }}</td>
+            </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ end }}

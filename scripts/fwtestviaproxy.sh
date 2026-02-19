@@ -86,7 +86,7 @@ else
   log "Proxy $HTTP_PROXY failed connecting to icanhazip.com.  Will try alts from pubproxy.com."
   for CNT in {0..10}; do
     [ $DBG ] && log "Try $CNT for proxy HTTP_PROXY via pubproxy.com."
-    if PROXYJSON=$(curl -s http://pubproxy.com/api/proxy?country=US,CA); then
+    if PROXYJSON=$(curl -s http://pubproxy.com/api/proxy?country=US,CA&type=http); then
       if HTTP_PROXY=$(echo $PROXYJSON|jq -r .data[0].ipPort); then
         HTTP_PROXY=$(echo $PROXYJSON|jq -r .data[0].type)://$HTTP_PROXY
         log "HTTP_PROXY = $HTTP_PROXY"

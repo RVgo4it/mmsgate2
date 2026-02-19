@@ -1,0 +1,10 @@
+{{define "body"}}
+    <form method="post" action="/admin">
+        {{ if (.Btn1) }}<input id="button1" name="button1" type="submit" value="{{ .Btn1val }}">{{ end }}
+        {{ if (.Btn2) }}<input id="button2" name="button2" type="submit" value="{{ .Btn2val }}">{{ end }}
+        <input id="nextpage" name="nextpage" type="hidden" value="{{ .Nextpage }}">
+        <input id="thispage" name="thispage" type="hidden" value="{{ .Thispage }}">
+        <input id="passdata" name="passdata" type="hidden" value="{{ .Passdata }}">
+        {{ template "table" . }}
+    </form>
+{{ end }}

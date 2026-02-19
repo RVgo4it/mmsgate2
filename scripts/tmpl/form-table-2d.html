@@ -1,0 +1,22 @@
+{{define "header"}}MMSGate Admin{{ .Title2 }}{{end}}
+{{ define "table" }}
+<table>
+    {{ range .CustomItems }}
+        {{ if .Header }}<thead>
+            <tr>
+                {{ range .Row }}
+                    <th>{{ . }}</th>
+                {{ end }}
+            </tr>
+        </thead>
+        {{ else }}<tbody>
+            <tr>
+                {{ range .Row }}
+                    <td>{{ . }}</td>
+                {{ end }}
+            </tr>
+        </tbody>
+        {{ end }}
+    {{ end }}
+</table>
+{{ end }}   

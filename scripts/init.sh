@@ -92,7 +92,8 @@ OPENSIPSPID=$!
     STARTEPOCH=$(date +%s)
     if [ $ENABLEMMSGATE == Y ]; then
       log "Starting MMSGate"
-      sudo -i -u mmsgate /scripts/mmsgate.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM" $MMSGATEOPTS &
+#      sudo -i -u mmsgate /scripts/mmsgate.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM" $MMSGATEOPTS &
+      sudo -i -u mmsgate /scripts/mmsgate2.sh &
       PID=$!
       [ $DBG ] && log "Started MMSGate as $PID"
       wait $PID

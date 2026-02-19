@@ -123,6 +123,7 @@ RUN	cd /usr/src/opensips-cli && \
 	pip3 install . && \
 	pip3 install --upgrade urllib3 && \
 	pip3 install cryptography && \
+	python -m pip install --upgrade pip && \
 	rm -rf /usr/src/opensips-cli
 
 # This is the final image

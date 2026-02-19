@@ -1,6 +1,54 @@
 # syntax=docker/dockerfile:1
 
-# This builds a MMSgate image from the OpenSIPS installed image
+# this builds the mmsgate2 and lego go execs.  we'll run native and cross compile
+FROM	--platform=$BUILDPLATFORM golang:latest AS gobuild
+
+LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+# need for cross compiling targets
+ARG	BUILDPLATFORM
+ARG	TARGETPLATFORM
+ARG	TARGETOS
+ARG	TARGETARCH
+
+# we'll put output under /root
+WORKDIR	/root
+
+RUN	apt-get -y update; apt-get -y install \
+	# Important: required for go-sqlite3
+	gcc \
+	# Required for Alpine
+	musl-dev
+
+# compile mmsgate2
+RUN	mkdir ~/mmsgate2
+COPY	--chown=root --chmod=755 mmsgate2/scripts/*.go mmsgate2/scripts/go.* /root/mmsgate2/
+# if doing cross compile...  then add the needed GCC compiler
+RUN	if [ ${TARGETPLATFORM} != ${BUILDPLATFORM} ] ; then \
+	  if [ ${TARGETARCH} = arm ] ; then \
+	    apt-get -y install gcc-arm-linux-gnueabihf && \
+	    export CC=arm-linux-gnueabihf-gcc; \
+	  fi && \
+	  if [ ${TARGETARCH} = arm64 ] ; then \
+	    apt-get -y install gcc-aarch64-linux-gnu && \
+	    export CC=aarch64-linux-gnu-gcc; \
+	  fi && \
+	  if [ ${TARGETARCH} = amd64 ] ; then \
+	    apt-get -y install gcc-x86-64-linux-gnu && \
+	    export CC=x86_64-linux-gnu-gcc; \
+	  fi ; \
+	fi && \
+	cd ~/mmsgate2 && \
+	CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -v -o ./mmsgate2
+
+# compile lego
+RUN	mkdir ~/lego
+RUN	cd ~/lego && \
+	GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install -v github.com/go-acme/lego/v4/cmd/lego@latest
+# copy exec to /root/lego...  check both /go/bin and /go/bin/os_arch
+RUN	cp /go/bin/${TARGETOS}_${TARGETARCH}/lego ~/lego/ || cp /go/bin/lego ~/lego/
+
+# This builds a MMSgate2 image from the OpenSIPS installed image
 FROM	rvgo4it/opensips
 
 LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
@@ -18,55 +66,18 @@ RUN	apt -y update && \
 	nano \
 	cron \
 	jq \
-	gunicorn \
 	dumb-init \
 	nginx \
 	lynx \
-	python3-multipart \
-	python3-requests \
-	python3-qrcode \
-	python3-prettytable \
-	python3-wtforms \
 	traceroute \
 	rsyslog \
 	iputils-tracepath \
 	dnsutils
 
-# Download and install LEGO
-SHELL	["/bin/bash", "-c"]
-ARG	LEGO_VER=4.30.1
-RUN	LEGOVER=$LEGO_VER && \
-	curl -L -o lego_${LEGOVER}_checksums.txt https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_${LEGOVER}_checksums.txt && \
-	LEGOARCH=$(uname -m) && \
-	echo uname $LEGOARCH && \
-	if [[ "$LEGOARCH" == x86_64* ]]; then \
-	  LEGOARCH=amd64; \
-	elif [[ "$LEGOARCH" == "i386" || "$LEGOARCH" == "i686" ]]; then \
-	  LEGOARCH=386; \
-	elif [[ "$LEGOARCH" == aarch64* || "$LEGOARCH" == armv8* ]]; then \
-	 LEGOARCH=arm64; \
-	elif [[ "$LEGOARCH" == armv7l* ]]; then \
-	  LEGOARCH=armv7; \
-	elif [[ "$LEGOARCH" == armv6l* ]]; then \
-	  LEGOARCH=armv6; \
-	elif [[ "$LEGOARCH" == armv5l* ]]; then \
-	  LEGOARCH=armv5; \
-	else \
-	  exit 1; \
-	fi && \
-	echo uname $LEGOARCH && \
-	curl -L -o lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz && \
-	SUM=$(sha256sum lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz)  && \
-	grep "$SUM" lego_${LEGOVER}_checksums.txt && \
-	tar -xvzf lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz && \
-	sudo mv lego /bin/lego && \
-	rm * && \
-	lego -v
-
-# Configure user mmsgate, a little sudo
+# Configure user mmsgate, with a little sudo
 RUN	useradd -ms /bin/bash mmsgate && \
 	echo 'mmsgate:notnot' | chpasswd && \
-        echo 'mmsgate ALL=(ALL) NOPASSWD:SETENV:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh', /scripts/fwtestviator.sh, /scripts/fwtestviaproxy.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh >> /etc/sudoers
+        echo 'mmsgate ALL=(ALL) NOPASSWD:SETENV:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh, /scripts/fwtestviator.sh, /scripts/fwtestviaproxy.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh' >> /etc/sudoers
 
 # Configure user opensips, no sudo
 RUN	useradd -ms /bin/bash opensips && \
@@ -77,23 +88,22 @@ RUN	useradd -ms /bin/bash mmsgateadm && \
 	echo 'mmsgateadm:notnot' | chpasswd && \
 	echo 'mmsgateadm ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-COPY	--chown=root --chmod=755 mmsgate2/scripts/* /scripts/
-COPY	--chown=root --chmod=755 mmsgate2/globalcfg.txt mmsgate2/globalcfg.sh mmsgate2/opensips.cfg /etc/opensips/
+# bring over the scripts and other files
+COPY	--chown=root mmsgate2/scripts/ /scripts/
+COPY	--chown=root mmsgate2/globalcfg.txt mmsgate2/globalcfg.sh mmsgate2/opensips.cfg /etc/opensips/
 
 # cron new config location
-# have cron run preprocchk.sh every 10 minutes, dynudnschk.sh 5 minutes after that, and certs.sh twice a day at random time.
-# also, clean up media files (not xml config) over 90 days old once a day, 2 am
+# have cron run preprocchk.sh every 10 minutes, dynudnschk.sh 5 minutes after that
+# also, clean up media files (not xml, vcard or qrcode files) over 90 days old once a day, 2 am
 # and clean up messages from over 30 days ago, sundays at 2:30 am
-# reconcile messages daily at 2:35 am
 # finally compact the databases sundays at 2:45 am and 2:55 am
 RUN	mv /var/spool/cron/crontabs /etc/opensips/ && \
 	ln -s /etc/opensips/crontabs /var/spool/cron && \
 	echo 'SHELL=/bin/bash' | crontab - && \
 	{ crontab -l; echo '*/10 * * * * . /etc/profile; /scripts/preprocchk.sh'; } | crontab - && \
 	{ crontab -l; echo '5,15,25,35,45,55 * * * * . /etc/profile; /scripts/dynudnschk.sh'; } | crontab - && \
-	{ crontab -l; echo '0 2 * * * MEDIA=/data/mmsmedia/; find $MEDIA -mtime +90 ! -name '"'"'contacts.vcard'"'"' ! -name '"'"'*.xml'"'"' ! -name '"'"'*-cfg.png'"'"' -delete'; } | crontab - && \
+	{ crontab -l; echo '0 2 * * * . /etc/opensips/globalcfg.sh; find $LOCALMEDIA -mtime +90 ! -name '"'"'contacts.vcard'"'"' ! -name '"'"'*.xml'"'"' ! -name '"'"'*-cfg.png'"'"' -delete'; } | crontab - && \
 	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
-	{ crontab -l; echo '35 2 * * * . /etc/opensips/globalcfg.sh; /scripts/mmsreconcile.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM"'; } | crontab - && \
 	{ crontab -l; echo '45 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
 	{ crontab -l; echo '55 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
 
@@ -101,13 +111,10 @@ RUN	mv /var/spool/cron/crontabs /etc/opensips/ && \
 RUN	echo 'local7.*        /var/log/opensips.log' > /etc/rsyslog.d/40-opensips.conf && \
 	echo 'local7.*        stop' >> /etc/rsyslog.d/40-opensips.conf && \
 	echo 'local6.*        /var/log/mmsgate.log' > /etc/rsyslog.d/41-mmsgate.conf && \
-	echo 'local6.*        stop' >> /etc/rsyslog.d/41-mmsgate.conf && \
-	echo 'local5.*        /var/log/gunicorn.log' > /etc/rsyslog.d/42-gunicorn.conf && \
-	echo 'local5.*        stop' >> /etc/rsyslog.d/42-gunicorn.conf
+	echo 'local6.*        stop' >> /etc/rsyslog.d/41-mmsgate.conf
 
 # setup log rotates.  includes opensips.log, mmsgate.log and nginx files and HUB/USR1 signal to reopen
-RUN	sed --in-place 's_/var/log/syslog_/var/log/syslog\n/var/log/gunicorn.log\n/var/log/mmsgate.log\n/var/log/opensips.log_' /etc/logrotate.d/rsyslog && \
-	sed --in-place 's_rsyslog-rotate_rsyslog-rotate\n\t\t/bin/kill -HUP $(cat /var/run/rsyslogd.pid)_' /etc/logrotate.d/rsyslog && \
+RUN	sed --in-place 's_rsyslog-rotate_rsyslog-rotate\n\t\t/bin/kill -HUP $(cat /var/run/rsyslogd.pid)_' /etc/logrotate.d/rsyslog && \
 	sed --in-place 's_invoke-rc.d nginx rotate_invoke-rc.d nginx rotate >/dev/null 2>&1\n\t\t/bin/kill -USR1 $(cat /var/run/nginx.pid)_' /etc/logrotate.d/nginx
 
 # need some data folders
@@ -134,9 +141,9 @@ RUN	addgroup db && \
 	chown root:db /data/mmsgate && \
 	chmod g+s /data/mmsgate
 
-# Generate the default config file
-RUN	/scripts/mmsgate.py --default-config > /etc/opensips/mmsgate.conf && \
-	chmod a+r /etc/opensips/*
+# get go exec
+COPY	--from=gobuild /root/mmsgate2/mmsgate2 /scripts/
+COPY	--from=gobuild /root/lego/lego /bin/lego
 
 USER	mmsgateadm
 WORKDIR	/home/mmsgateadm

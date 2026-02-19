@@ -11,8 +11,8 @@ source /etc/opensips/globalcfg.sh
 [ "$DEBUG" == "Y" ] && DBG=1
 
 # random run for cert renew?
-if crontab -l|grep /scripts/certs; then 
-  [ $DBG ] && log "Verts renew is already scheduled..."
+if crontab -l|grep /scripts/certs > /dev/null; then 
+  [ $DBG ] && log "Certs renew is already scheduled..."
 else 
   [ $DBG ] && log "Scheduling certs renew."
   M=$(perl -e 'print int(rand(60))')

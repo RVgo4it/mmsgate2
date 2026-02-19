@@ -22,11 +22,11 @@
 
 ## Introduction
 
-MMSGate2 is a MMS message gateway between [VoIP.ms](https://voip.ms/) and [Linphone](https://www.linphone.org/en/) clients.Linphone is an open-source soft-phone. It makes VoIP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
+MMSGate2 is a MMS message gateway between [VoIP.ms](https://voip.ms/) and [Linphone](https://www.linphone.org/en/) clients.  Linphone is an open-source soft-phone. It makes VoIP SIP calls and can send/receive SMS/MMS messages over the SIP protocol. It can also use push notifications to ensure no calls are missed and SMS/MMS are delivered quickly.
 
 VoIP.ms provides voice and SMS over SIP protocol. While MMS messages are possible, the service is provided over a customized API and web hook. MMSGate2 provides the link between VoIP.ms's MMS service and Linphone clients.
 
-The Linphone clients connect through [OpenSIPS](https://www.opensips.org/) to VoIP.ms via SIP protocols. MMSgate2 communicates via SIP and web interfaces with VoIP.ms and Linphone clients.  Calls are established via the standard SIP protocol.  However, the voice data is sent directly between VoIP.ms and the Linphone clients.  Optional Push Notifications are sent via standard SIP messages, utilizing the existing Linphone infrastructure.   
+The Linphone clients connect through [OpenSIPS](https://www.opensips.org/) to VoIP.ms via SIP protocols. MMSgate2 communicates via SIP and web interfaces with VoIP.ms and Linphone clients.  Calls are established via the standard SIP protocol.  However, the voice data is sent directly between VoIP.ms and the Linphone clients so as to reduce delays.  Optional Push Notifications are sent via REST API, utilizing the existing Linphone infrastructure.   
 
 MMSGate2 relies on VoIP.ms sub accounts and their extensions.  When clients are configured, it includes contacts for the extensions.  Messages and calls between extensions are free of charge.  All communications are encrypted.  Messages between extensions are passed directly from client to client via MMSGate2.  
 
@@ -34,7 +34,7 @@ MMSGate2 relies on VoIP.ms sub accounts and their extensions.  When clients are 
 
 ## Requirements and Prerequisites
 
-MMSGate2 has a very small footprint, as little as 100 megabytes of memory.  This allows it to run on residential routers with [OpenWRT](https://openwrt.org/) installed or a very low cost VPS servers.  It can also run on a pocket sized hobby computer like a [Raspberry Pi Zero W](https://www.raspberrypi.com/products/raspberry-pi-zero-w/).  As long as the system can run [Docker](https://www.docker.com/); Docker Community Edition (CE) or Docker-Desktop; it can run MMSGate2.  That includes Raspberry Pi devices and laptops or desktops running Windows, Ubuntu or even MacOS.  Many NAS devices that you may already own can also run Docker.  
+MMSGate2 has a very small footprint, as little as 100 megabytes of memory.  This allows it to run on residential routers with [OpenWRT](https://openwrt.org/) installed, a low cost VPS server, or even a pocket sized hobby computer like a [Raspberry Pi Zero W](https://www.raspberrypi.com/products/raspberry-pi-zero-w/).  As long as the system can run [Docker](https://www.docker.com/); Docker Community Edition (CE) or Docker-Desktop; it can run MMSGate2.  That includes laptops or desktops running Windows, Ubuntu Desktop or MacOS.  Most recent Raspberry Pi devices loaded with Ubuntu make an excellent platform.  Many NAS devices that you may already own can also run Docker.  
 
 If you can download and install software, type URLs into a web page, copy-and-paste text, you can install Docker and MMSGate2.
 
@@ -94,7 +94,7 @@ click Docker, and then select Quit Docker Desktop.
 <details details name='host'>
 <summary>OpenWRT</summary>
 <a href='https://openwrt.org/' target='_blank'>OpenWRT</a> runs a wide variety of hardware.  
-If it has enough memory, i.e. 100m free; also ARM32 (v7+) or 
+If it has enough memory, i.e. 100m free; also ARM32 (v7+), 
 ARM64 processor or an AMD64 (Intel x86); plus some storage; you can 
 install Docker.  <br><br>
 First, make sure you have storage.  Don't try to run Docker on your 
@@ -170,13 +170,20 @@ uci commit firewall
 For all these devices, you'll need Ubuntu Server installed.  Once 
 on the system, you can follow the guide 
 <a href='https://docs.docker.com/engine/install/ubuntu' target='_blank'>Docker 
-install Ubuntu</a>.  <br><br>
+install Ubuntu</a>.  You'll want to use the "Install using the apt 
+repository" method.  <br><br>
+To make future activity easier, grant your user Docker rights: 
+<pre><code>sudo usermod -a -G docker $USER
+</code></pre>
+<br><br>
 Tip for the Raspberry Pi:  These devices don't need many accessories.  
 It is often successful with just flashing Ubuntu Server onto the SD card 
 with SSH enabled and network setup (including Wifi).  Once the SD card 
 is in the Pi, power it up and a few minutes later, check the DHCP server 
-in the router to get the Pi's IP address.  Just SSH to it.  
-Thus, no keyboard or monitor needed.  <br><br>
+in the router to get the Pi's IP address.  Thus, no keyboard or monitor 
+needed.  Just SSH to it.  Be sure to disable power management and add a 
+swap file.  Details for the Raspberry Pi Zero 2 W are here: 
+<a href='RASPI02W.MD' target='_blank'>RASPI02W.MD</a>.<br><br>
 Tip for VPS: The admin interface is not available except via a 
 private network such as 192.168.0.0/16 or 10.0.0.0/8.  Naturally, A VPS 
 may not have a private network. However, it is available locally within 
@@ -201,7 +208,10 @@ Synology tip: Commands pasted into the SSH sessions will usually need a
 permission.  <br><br>
 QNAP tip: To make sure MMSGate2 starts when the NAS starts and has 
 correct resource limits, open "Container Station", open "mmsgate2", 
-stop then open "Settings" and enable "Auto start" and set resource limits.
+stop then open "Settings" and enable "Auto start" and set resource limits.  
+QNAP devices often prefer the web interface for creating a container.  
+Skip the "docker run" command and use the web interface to define the 
+same settings for the container.
 </details>
 
 **The host and up-time:**  For the long term, It is not recommended to run MMSGate2 on a system that has active power-management (can go to sleep) or is also used for web browsing, email and office documents.  For the long term, please use a host that will be up and operational 24/7.  
@@ -220,7 +230,7 @@ Copy-and-paste the following command into the Docker CLI:
 docker pull rvgo4it/mmsgate2
 ```
 
-You will see multiple download and extracts for the image layers.  It may take a few minutes.  Once done, we can run MMSGate2.  
+You will see multiple downloads and extracts for the image layers.  It may take a few minutes.  Once done, we can run MMSGate2.  
 
 ### Docker Container
 
@@ -250,7 +260,7 @@ docker run -m 100m --name mmsgate2 -d \
   rvgo4it/mmsgate2
 ```
 
-For MacOS, NAS and Ubuntu server and desktop, use this command:
+For MacOS, NAS and Ubuntu desktop and server (includes Pi and VPS), use this command:
 
 ```bash
 docker run -m 100m --name mmsgate2 -d \
@@ -344,7 +354,7 @@ If you want to use Push Notifications, click Linphone.
 
 You can create new Linphone accounts from this page or add existing one.  Once they are created or added successfully, they will appear as "Activated!" and can be used for Push Notifications.  
 
-You will need one Linphone account for each mobile device running the Linphone App and Push Notification is needed.  When done, click Cancel to return to the main menu.
+You will need one Linphone account for each mobile device running the Linphone App and Push Notification is needed.  You cannot use a Linphone account on more than one client.  When done, click Cancel to return to the main menu.
 
 ### VoIP.ms Sub Accounts
 
@@ -356,21 +366,21 @@ This page displays all your sub accounts.  It will not make any changes to VoIP.
 
 It may ask you to make changes to your sub accounts or DIDs if needed.  MMSGate needs a DID selected as the CallerID for any sub accounts.  Also, the sub account needs to be configured for encrypted SIP traffic and be assigned a unique extension.  Any DID used with MMSGate2 also needs to have a web hook URL entered.  This page will tell you if needed.  After making changes to sub accounts or DIDs at the Voip.ms web site, click Refresh to load the new settings.   
 
-The SMS/MMS Ignore/Accept is for when a message arrives for one of your DIDs.  It can be accepted and forwarded to any sub accounts associated with that DID.  Or, the message can be ignored.  An ATA device, SIP phone or other devices that cannot receive SMS and MMS messages, always set to ignore.  
+The SMS/MMS Ignore/Accept is for when a message arrives for one of your DIDs.  It can be accepted and forwarded to any sub accounts associated with that DID.  Or, the message can be ignored for the sub account.  For an ATA device, SIP phone or other devices that cannot receive SMS and MMS messages, always set to ignore.  
 
-Under Push Notif, a Linphone account can be selected for the sub account.  If selected, Push Notifications can be used by to wake the mobile app.  If the same Linphone account is assigned to multiple sub accounts, it tells MMSGate that all those sub accounts will be used on the same mobile app.  
+Under Push Notif, a Linphone account can be selected for the sub account.  If selected, Push Notifications can be used by to wake up the mobile app.  If the same Linphone account is assigned to multiple sub accounts, it tells MMSGate that all those sub accounts will be used on the same mobile app.  
 
 When modifying Push Notif or SMS/MMS settings for a sub account, press Apply after making selection.  
 
-Once done settings preferences, click "Client Config".
+Once done setting preferences, click "Client Config".
 
 ### Client Config
 
 ![](images/client.png)
 
-By default, the client config includes an encrypted copy of the sub account password.  If using Push Notification, the config will include all sub accounts assigned the same Linphone account.  If not using Push Notification, additional sub accounts can be selected.  If the password preference is changed or a sub account added, press Refresh.  If the encrypted password is not included, the client will prompt for a password.  
+By default, the client config includes an encrypted copy of the sub account password.  This assumed the authentication "realm" matches the domain/server for the VoIP.ms PoP.  It normally does match.  If using Push Notification, the config will include all sub accounts assigned the same Linphone account.  If not using Push Notification, additional sub accounts can be selected.  Each sub account can be used on only one client at a time.  If the password preference is changed or a sub account added, press Refresh.  If the encrypted password is not included, the client will prompt for a password.  You may also choose to include the password un-encrypted, allowing the client to connect via a non-standard realm.  Once ready, click the "Generate Config" button.
 
-The QR code is the easiest way to configure the client.  Install a Linphone client.
+Install a Linphone client.  They are available via app stores for mobile devices or as a download for laptops and desktops.
 
 - Android - [Linphone - Apps on Google Play](https://play.google.com/store/apps/details?id=org.linphone&pli=1)
 
@@ -386,13 +396,15 @@ The QR code is the easiest way to configure the client.  Install a Linphone clie
 
 - Linux - [Download](https://linphone.org/releases/linux/latest_app)
 
+The QR code is the easiest way to configure the client.  
+
 Once the client is installed, open it and respond to the usual prompts.  Stop short of registering or providing any credentials.  When offered, use the camera to scan the QR code.   Once scanned, logon is done and you are online.  
 
-Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.  
+Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.    
 
-If Push Notification was configured, the system will send a free SMS message via the selected Linphone account when needed.  When the first message appears, simply mute the conversation.  There is no need for a pop-up for every Push Notification.  
+If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages at any time.
 
-If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages.
+Normally, the first account is selected as the default account.  When you pull-down the menu from the upper-left, you will see it highlighted.  If it is not highlighted, tap on it to select it.  Don't tap on status.  That will only re-register without selecting a default.  
 
 ## FAQ
 
@@ -409,7 +421,7 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
 - I have a cable modem and home Wifi router.  Configure both?
   
   - If the cable modem is purely a modem, it will provide an Internet IP address to your home Wifi router.  So, just the home router needs to be configured.   
-  - However, some cable modems also act as a router.  This is called a double NAT,  and can complicate things.  It can still be done by configuring both.  But it would be better to simplify things.  
+  - However, some cable modems also act as a router.  This is called a [double NAT](https://www.google.com/search?q=double+nat+issues),  and can complicate things.  It can still be done by configuring both.  But it would be better to simplify things and remove the double NAT.  
 
 - The contacts that are imported during client config, where do they come from? 
   
@@ -417,15 +429,15 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
 
 - Why does MMSGate2 use so little memory?
   
-  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts are still the biggest memory hogs.  
+  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts have been replaced by a [Go language](https://go.dev/) program.  Go is very memory efficient.  
   
-  - Currently, the Python scripts primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the mobile app for new MMS messages.  The admin interface is secondary.  
+  - Currently, the Go program primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the mobile app for new MMS messages.  The admin interface is secondary.  
 
 - What happens if MMSGate2 exceeds the 100m of memory?
   
-  - If that happens, Docker will kill MMSGate2 processes.  Depending on the process, different things will happen.  [Gunicorn](https://gunicorn.org/) monitors the Python processes and will restart any killed.  But some are more critical and will cause the entire Python script to exit and restart.  For OpenSIPS, a killed process may also cause the application to exit and restart.  If process 1 is killed, the entire container will restart.
+  - If that happens, Docker will kill MMSGate2 processes.  Depending on the process, different things will happen.  The Go program is only a single process with many threads, so it will stop and restart.  For OpenSIPS, a killed process may be restarted or cause the application to exit and restart.  If process 1 is killed, the entire container will restart.  
 
-- New image version for MMSGate2 released?  How to install?
+- A new image version for MMSGate2 was released?  How to install?
   
   - To install a new MMSGate2 image, clear out the old container with these commands:  
   - ```bash
@@ -452,13 +464,13 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
   
   - If MMSGate2 is offline when a SMS or MMS message is sent to one of your DIDs, the web hook call from VoIP.ms to MMSGate2 will fail.  
   
-  - However, the message is still in the logs at VoIP.ms.  The mmsreconcile.py script runs daily at 2:35 AM.  It will compare the message logs at VoIP.ms to the local logs.  Any messages missed will be resent.  It will check for messages as old as 7 days.  
+  - However, the message is still in the logs at VoIP.ms.  The Go program performs a reconcile every 6 hours and at start up.  It will compare the message logs at VoIP.ms to the local logs.  Any messages missed will be resent.  It will check for messages as old as 7 days.  
 
 - Why does the Linphone app show two accounts connected?
   
   - When the client was configured, a Linphone account was selected so as to use Push Notifications (PN).  
   
-  - PN requires credentials shared between the sending server, Linphone.org and the Linphone app.  MMSGate2 triggers the PN by sending a free SMS message via the Linphone.org server to the Linphone account registered in the app.  
+  - PN requires credentials shared between the sending server, Linphone.org and the Linphone app.  MMSGate2 triggers the PN by using the REST API via the Linphone.org server.  
 
 - I forgot my password.  How do I reset it?
   
@@ -469,3 +481,40 @@ If Push Notification was NOT configured, be sure to adjust your mobile device's 
     ```
   
   - The admin page will appear in text format.  Select Advanced->Set_Admin_Password.  
+
+- Sometimes I get double messages.  Why is that?
+  
+  - SIP protocol requires positive hand-off of messages.  If delivery of a message is not confirmed, MMSGate2 stores it and tries again later.  Once in a while, the message gets to the client but the confirmation does not get to MMSGate2.  Thus, it sends it again, resulting in the appearance of double messages.
+
+- How do I build from the source code?
+  
+  - First, make sure "git" is install on your host.  Also, you will need more than 100m of free memory.  
+  
+  - From the command prompt, i.e. SSH or ">_ Terminal", paste the following commands:
+  
+  - ```bash
+    mkdir ~/mmsgate-system
+    cd ~/mmsgate-system
+    ```
+  
+  - Get a copy of this repository:
+  
+  - ```bash
+    git clone https://github.com/RVgo4it/mmsgate2 --recursive -b main
+    ```
+  
+  - Build OpenSIPS:
+  
+  - ```bash
+    docker buildx build -t rvgo4it/opensips --network host -f mmsgate2/Dockerfile_opensips .
+    ```
+  
+  - Build MMSGate2:
+  
+  - ```bash
+    docker buildx build -t rvgo4it/mmsgate2 --network host -f mmsgate2/Dockerfile_mmsgate2 .
+    ```
+  
+  - You now have the needed local images.  Use MMSGate2 normally, but skip the "docker pull" command.
+
+ 

@@ -1,0 +1,12 @@
+{{ define "base" }}
+    <html>
+        <head><title>MMSGate Admin</title></head>
+        <body>
+          <h2>{{ template "header" . }}</h2>
+          {{ template "body" . }}
+          {{ range .Msgs }}
+            {{ . }}<br>
+          {{ end }}
+        </body>
+    </html>
+{{ end }}
