@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# registry to pull opensips is the default 
+ARG	REG=""
+
 # this builds the mmsgate2 and lego go execs.  we'll run native and cross compile
 FROM	--platform=$BUILDPLATFORM golang:latest AS gobuild
 
@@ -20,36 +23,82 @@ RUN	apt-get -y update; apt-get -y install \
 	# Required for Alpine
 	musl-dev
 
+# use bash for all shells w/ ~/.bashstart
+SHELL	["bash", "-c"]
+RUN	ln -s bash /bin/sh.bash && \
+	mv /bin/sh.bash /bin/sh
+ENV	BASH_ENV=/root/.bashstart
+RUN	echo BASH_ENV=/root/.bashstart >> ~/.bashstart
+# check host system memory and set GOMAXPROCS and other gcc options for memory use
+RUN	read X KELO Y < /proc/meminfo && \
+	echo from /proc/meminfo = ${KELO}kb && \
+	MEGS=$((KELO/1024)) && \
+	NPROC=$(nproc) && \
+	echo export MEGS=$MEGS >> ~/.bashstart && \
+	echo Memory: ${MEGS}mb && \
+	if [ $MEGS -le 512 ] ; then \
+	  [ $NPROC -gt 1 ] && echo export GOMAXPROCS=1 >> ~/.bashstart ; \
+	  echo "export CGO_CPPFLAGS='--param=ggc-min-expand=10 --param=ggc-min-heapsize=8192 -Wa,--reduce-memory-overheads'" >> ~/.bashstart ; \
+	elif [ $MEGS -le 1024 ] ; then \
+	  [ $NPROC -gt 2 ] && echo export GOMAXPROCS=2 >> ~/.bashstart ; \
+	  echo "export CGO_CPPFLAGS='--param=ggc-min-expand=20 --param=ggc-min-heapsize=16384 -Wa,--reduce-memory-overheads'" >> ~/.bashstart ; \
+	elif [ $MEGS -le 2048 ] ; then \
+	  [ $NPROC -gt 3 ] && echo export GOMAXPROCS=3 >> ~/.bashstart ; \
+	fi
+RUN	echo $CPU Limit: $GOMAXPROCS && \
+	echo Go Cpp Flags: $CGO_CPPFLAGS
+
 # compile mmsgate2
 RUN	mkdir ~/mmsgate2
 COPY	--chown=root --chmod=755 mmsgate2/scripts/*.go mmsgate2/scripts/go.* /root/mmsgate2/
-# if doing cross compile...  then add the needed GCC compiler
+# if doing cross compile...  then add the needed GCC compiler.  then start compile...
 RUN	if [ ${TARGETPLATFORM} != ${BUILDPLATFORM} ] ; then \
-	  if [ ${TARGETARCH} = arm ] ; then \
+	  if [ ${TARGETARCH} == arm ] ; then \
 	    apt-get -y install gcc-arm-linux-gnueabihf && \
 	    export CC=arm-linux-gnueabihf-gcc; \
 	  fi && \
-	  if [ ${TARGETARCH} = arm64 ] ; then \
+	  if [ ${TARGETARCH} == arm64 ] ; then \
 	    apt-get -y install gcc-aarch64-linux-gnu && \
 	    export CC=aarch64-linux-gnu-gcc; \
 	  fi && \
-	  if [ ${TARGETARCH} = amd64 ] ; then \
+	  if [ ${TARGETARCH} == amd64 ] ; then \
 	    apt-get -y install gcc-x86-64-linux-gnu && \
 	    export CC=x86_64-linux-gnu-gcc; \
 	  fi ; \
 	fi && \
 	cd ~/mmsgate2 && \
-	CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -v -o ./mmsgate2
+	CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o ./mmsgate2
 
-# compile lego
-RUN	mkdir ~/lego
-RUN	cd ~/lego && \
-	GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install -v github.com/go-acme/lego/v4/cmd/lego@latest
-# copy exec to /root/lego...  check both /go/bin and /go/bin/os_arch
-RUN	cp /go/bin/${TARGETOS}_${TARGETARCH}/lego ~/lego/ || cp /go/bin/lego ~/lego/
+# download the LEGO_VER image (if host <1g mem) or compile latest lego
+ARG	LEGO_VER=4.32.0
+RUN	mkdir ~/lego && cd ~/lego && \
+	if [ $MEGS -le 1024 ] ; then \
+	  echo Downloading lego && \
+	  LEGOVER=$LEGO_VER && \
+	  echo LEGOVER: $LEGO_VER && \
+	  curl -L -o lego_${LEGOVER}_checksums.txt https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_${LEGOVER}_checksums.txt && \
+	  if [ ${TARGETARCH} == arm ] ; then \
+	    LEGOARCH=armv7; \
+	  fi && \
+	  if [ ${TARGETARCH} == arm64 ] ; then \
+	    LEGOARCH=arm64; \
+	  fi && \
+	  if [ ${TARGETARCH} == amd64 ] ; then \
+	    LEGOARCH=amd64; \
+	  fi && \
+	  echo LEGOARCH: $LEGOARCH && \
+	  curl -L -o lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz && \
+	  SUM=$(sha256sum lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz)  && \
+	  grep "$SUM" lego_${LEGOVER}_checksums.txt && \
+	  tar -xvzf lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz ; \
+	else \
+	  echo Installing lego && \
+	  GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install -v github.com/go-acme/lego/v4/cmd/lego@latest && \
+	  { cp /go/bin/${TARGETOS}_${TARGETARCH}/lego ~/lego/ || cp /go/bin/lego ~/lego/ ; } \
+	fi
 
 # This builds a MMSgate2 image from the OpenSIPS installed image
-FROM	rvgo4it/opensips
+FROM	${REG}rvgo4it/opensips
 
 LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
 
@@ -72,6 +121,7 @@ RUN	apt -y update && \
 	traceroute \
 	rsyslog \
 	iputils-tracepath \
+	htop \
 	dnsutils
 
 # Configure user mmsgate, with a little sudo
@@ -143,7 +193,7 @@ RUN	addgroup db && \
 
 # get go exec
 COPY	--from=gobuild /root/mmsgate2/mmsgate2 /scripts/
-COPY	--from=gobuild /root/lego/lego /bin/lego
+COPY	--from=gobuild /root/lego /bin/lego
 
 USER	mmsgateadm
 WORKDIR	/home/mmsgateadm

@@ -83,11 +83,33 @@ RUN	git clone https://github.com/OpenSIPS/opensips.git --recursive -b ${BRANCH} 
 # modules
 ARG	MODS="tls_wolfssl db_sqlite tls_openssl tls_mgm proto_tls sqlops presence xcap presence_xml json rest_client xml"
 RUN	echo Make modules: ${MODS}
+# force make's Makefile to use nproc, not getconf for CPU count.  this mostly for wolfssl
+RUN	rm /bin/getconf
+# use bash for all shells w/ ~/.bashstart
+SHELL	["bash", "-c"]
+RUN	ln -s bash /bin/sh.bash && \
+	mv /bin/sh.bash /bin/sh
+ENV	BASH_ENV=/root/.bashstart
+RUN	echo BASH_ENV=/root/.bashstart >> ~/.bashstart
+# check host memory for build options
+RUN	read X KELO Y < /proc/meminfo && \
+	echo from /proc/meminfo = ${KELO}kb && \
+	MEGS=$((KELO/1024)); \
+	echo Memory: ${MEGS}mb && \
+	if [ $MEGS -le 512 ] ; then \
+	  echo export OMP_THREAD_LIMIT=1 >> ~/.bashstart ; \
+	elif [ $MEGS -le 1024 ] ; then \
+	  echo export OMP_THREAD_LIMIT=2 >> ~/.bashstart ; \
+	elif [ $MEGS -le 2048 ] ; then \
+	  echo export OMP_THREAD_LIMIT=3 >> ~/.bashstart ; \
+	fi
+RUN	echo $CPU Limit: $OMP_THREAD_LIMIT && \
+	printf "nproc = " && nproc
+# build opensips
 RUN	cd ~/opensips && \
 	make clean && \
 	ln -s /root/opensips/modules/tls_wolfssl/lib/wolfssl /root/opensips/modules/tls_wolfssl/lib/include && \
-	mkdir /root/inst && \
-	mkdir /root/inst/lib && \
+	mkdir -p /root/inst/lib && \
 	mkdir /root/inst/lib64 && \
 	make prefix=/ include_modules="${MODS}" all && \
 	make prefix=/ basedir=/root/inst include_modules="${MODS}" install
@@ -104,8 +126,8 @@ WORKDIR	/root
 ENV	DEBIAN_FRONTEND=noninteractive
 
 # Update and install dev env for opensips
-RUN	apt update && \
-	apt install -y git libffi-dev python3-setuptools python3-dev python3-full default-libmysqlclient-dev gcc
+RUN	apt -y update && \
+	apt -y install git libffi-dev python3-setuptools python3-dev python3-full default-libmysqlclient-dev gcc
 
 # Make virtual python env for opensips-cli
 RUN	python3 -m venv /opt/venv

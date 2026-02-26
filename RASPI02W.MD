@@ -87,7 +87,7 @@ Follow these steps to install Ubuntu:
 20. Setup swap space using these commands:
     
     ```bash
-    sudo fallocate -l 128M /swap.img
+    sudo fallocate -l 256M /swap.img
     sudo chmod 600 /swap.img
     sudo mkswap /swap.img
     sudo swapon /swap.img

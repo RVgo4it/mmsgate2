@@ -241,7 +241,7 @@ For Windows, use this command:
 ```PowerShell
 docker run -m 100m --name mmsgate2 -d `
   -p 5061:5061 -p 38443:38443 -p 38000:38000 `
-  --cpus 2 `
+  --cpus 2 --restart unless-stopped `
   -e "TZ=America/New_York" `
   -v datavol:/data `
   -v confvol:/etc/opensips `
@@ -253,7 +253,8 @@ For OpenWRT, use this command:
 ```bash
 docker run -m 100m --name mmsgate2 -d \
   -p 5061:5061 -p 38443:38443 -p 38000:38000 \
-  --cpus 2 --network dockerlan \
+  --cpus 2 --restart unless-stopped \
+  --network dockerlan \
   -e "TZ=America/New_York" \
   -v datavol:/data \
   -v confvol:/etc/opensips \
@@ -265,18 +266,14 @@ For MacOS, NAS and Ubuntu desktop and server (includes Pi and VPS), use this com
 ```bash
 docker run -m 100m --name mmsgate2 -d \
   -p 5061:5061 -p 38443:38443 -p 38000:38000 \
-  --cpus 2 \
+  --cpus 2 --restart unless-stopped \
   -e "TZ=America/New_York" \
   -v datavol:/data \
   -v confvol:/etc/opensips \
   rvgo4it/mmsgate2
 ```
 
-Set the container to always restart:
-
-```bash
-docker update --restart unless-stopped mmsgate2
-```
+The MMSGate2 container has now started.
 
 ### Backups
 
@@ -429,15 +426,15 @@ Normally, the first account is selected as the default account.  When you pull-d
 
 - Why does MMSGate2 use so little memory?
   
-  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts have been replaced by a [Go language](https://go.dev/) program.  Go is very memory efficient.  
+  - It is mostly due to OpenSIPS.  OpenSIPS is very memory efficient.  Much more so than Flexisip that was used in the older MMSGate.  Also, OpenSIPS has lots of features and functions that it took over from the Python scripts and PJSIP.  Python and PJSIP used lots of resources in the old MMSGate.  In the new MMSGate2, the Python scripts have been replaced by a [Go language](https://go.dev/) program.  Go is also very memory efficient.  
   
   - Currently, the Go program primary function is for the web hook from VoIP.ms for receiving SMS/MMS messages and also uploading files from the mobile app for new MMS messages.  The admin interface is secondary.  
 
 - What happens if MMSGate2 exceeds the 100m of memory?
   
-  - If that happens, Docker will kill MMSGate2 processes.  Depending on the process, different things will happen.  The Go program is only a single process with many threads, so it will stop and restart.  For OpenSIPS, a killed process may be restarted or cause the application to exit and restart.  If process 1 is killed, the entire container will restart.  
+  - If that happens, services in the MMSGate2 container will be denied requests for more memory.  If the OS needs more memory, one or more MMSGate2 processes in the container may be killed.  Depending on the process, different things will happen.  The Go program is only a single process with many threads, so it will stop and be restarted.  OpenSIPS has many processes, a single killed process may be restarted or cause the OpenSIPS application to exit and be restarted.  If process 1 is killed, the primary container process that starts all other processes, the entire container will exit and restart.  
 
-- A new image version for MMSGate2 was released?  How to install?
+- A new image version for MMSGate2 was released?  How to install it?
   
   - To install a new MMSGate2 image, clear out the old container with these commands:  
   - ```bash
@@ -452,7 +449,7 @@ Normally, the first account is selected as the default account.  When you pull-d
 
 - How can I change the 90 day limit?
   
-  - From the command prompt, type:
+  - From the command prompt, paste:
   
   - ```bash
     docker exec -it mmsgate2 sudo crontab -e
@@ -488,7 +485,24 @@ Normally, the first account is selected as the default account.  When you pull-d
 
 - How do I build from the source code?
   
-  - First, make sure "git" is install on your host.  Also, you will need more than 100m of free memory.  
+  - First, make sure "git" is install on your host.  Search the Internet for how to install it for your host type.  Also, you will need 250m or more of free memory.  Use your favorite tool to check local resources.  For Linux, that is usually the "free" command.
+  
+  - If you are using OpenWRT, you'll need to add the "buildx" plugin.  For other systems, "buildx" is included, so skip over these steps:
+    
+    - Visit [Latest · docker/buildx · GitHub](https://github.com/docker/buildx/releases/latest) and find the linux version for your architecture.  It will be arm-v7, arm64 or amd64.  Make note of the URL path.  
+    - From command prompt, paste this command:
+    - ```bash
+      cd /usr/lib/docker/cli-plugins
+      ```
+    - Adjust the following command for the version and architecture you noted and paste it into a command prompt:
+    - ```bash
+      wget -O docker-buildx https://github.com/docker/buildx/releases/download/v0.31.1/buildx-v0.31.1.linux-arm-v7
+      ```
+    - and finally, allow it's use and done:
+    - ```bash
+      chmod +x docker-buildx
+      cd ~
+      ```
   
   - From the command prompt, i.e. SSH or ">_ Terminal", paste the following commands:
   
@@ -503,18 +517,43 @@ Normally, the first account is selected as the default account.  When you pull-d
     git clone https://github.com/RVgo4it/mmsgate2 --recursive -b main
     ```
   
-  - Build OpenSIPS:
+  - These builds have multiple stages and can consume significant memory.  Docker normally tries to build the stages in parallel, consuming even more memory.  If you have a host with limited memory, i.e. Raspberry Pi or OpenWRT, start a builder that builds one stage at a time and limits the use of memory.  You can adjust the limits in this command as needed.  Keep in mind, the "memory-swap" is the total allowed memory, ram + swap file.  If you have more than 250m memory available, adjust the "memory" higher to increase speed.  If you have plenty of memory, you can skip this command:
+    
+    - ```bash
+      docker buildx create --name=bldr --buildkitd-config mmsgate2/buildkitd.toml --driver=docker-container --driver-opt="network=host,memory=250m,memory-swap=550m" --bootstrap --use
+      ```
+  
+  - Normally, builds are pushed to Docker's registry at "docker.io/library".  To build locally, we'll create a local registry using this command:
   
   - ```bash
-    docker buildx build -t rvgo4it/opensips --network host -f mmsgate2/Dockerfile_opensips .
+    docker run -d -p 5000:5000 --restart always --network host --name registry registry:latest
     ```
   
-  - Build MMSGate2:
+  - Now, build the OpenSIPS image.  Keep in mind, this will take awhile.  Paste this command:
   
   - ```bash
-    docker buildx build -t rvgo4it/mmsgate2 --network host -f mmsgate2/Dockerfile_mmsgate2 .
+    docker buildx build -t localhost:5000/rvgo4it/opensips --push -f mmsgate2/Dockerfile_opensips .
     ```
   
-  - You now have the needed local images.  Use MMSGate2 normally, but skip the "docker pull" command.
-
- 
+  - Also, build the MMSGate2 image.  Also, takes awhile.  Use command:
+  
+  - ```bash
+    docker buildx build -t rvgo4it/mmsgate2 --build-arg "REG=localhost:5000" --load -f mmsgate2/Dockerfile_mmsgate2 .
+    ```
+  
+  - If you used the custom builder, paste this command to cleanup:
+  
+  - ```bash
+    docker buildx rm bldr
+    ```
+  
+  - No need for local registry going forward, paste these commands for final cleanup:
+  
+  - ```bash
+    docker stop registry
+    docker rm registry
+    docker buildx prune -f
+    docker image prune -f
+    ```
+  
+  - You now have the needed local image.  Use MMSGate2 normally, starting at the [Docker Container](#docker-container), skipping the "docker pull" command.
