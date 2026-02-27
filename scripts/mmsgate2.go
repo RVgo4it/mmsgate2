@@ -11,6 +11,8 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.1.5 2/26/2026 Enhanced messages when changing log/xlog levels for OpenSIPS
+// v1.1.4 2/25/2026 Build fixes for low memory hosts - works on host w/ 250m free memory
 // v1.1.3 2/13/2026 Turn off PN in client config when no Linphone account
 // v1.1.2 2/11/2026 Added UUID to vcard contacts
 // v1.1.1 2/7/2026 Switched to PN via REST
@@ -3079,12 +3081,14 @@ func setloglevel(Form url.Values, data *dat) (retfrorm string, err error) {
 		// get the lvl number
 		newlvl, ok := desc2lvl[newlvldesc]
 		if ok {
-			dualMsg(&data.Msgs, syslog.LOG_DEBUG, "Set OpenSIPS log level to "+newlvldesc)
+			dualMsg(&data.Msgs, syslog.LOG_DEBUG, "Setting OpenSIPS log level to "+newlvldesc)
 			// set it to new level
 			_, err := exec.Command("opensips-cli", "-x", "mi", "log_level", newlvl).Output()
 			// check return code
 			if err != nil {
 				dualMsg(&data.Msgs, syslog.LOG_ERR, "Failed to set OpenSIPS log level to "+newlvldesc)
+			} else {
+				dualMsg(&data.Msgs, syslog.LOG_ERR, "Successfully set OpenSIPS log level to "+newlvldesc)
 			}
 		} else {
 			// bad lvl desc from form
@@ -3158,12 +3162,14 @@ func setxloglevel(Form url.Values, data *dat) (retfrorm string, err error) {
 		// get the lvl number
 		newlvl, ok := desc2lvl[newlvldesc]
 		if ok {
-			dualMsg(&data.Msgs, syslog.LOG_DEBUG, "Set OpenSIPS xlog level to "+newlvldesc)
+			dualMsg(&data.Msgs, syslog.LOG_DEBUG, "Setting OpenSIPS xlog level to "+newlvldesc)
 			// set it to new level
 			_, err := exec.Command("opensips-cli", "-x", "mi", "xlog_level", newlvl).Output()
 			// check return code
 			if err != nil {
 				dualMsg(&data.Msgs, syslog.LOG_ERR, "Failed to set OpenSIPS xlog level to "+newlvldesc)
+			} else {
+				dualMsg(&data.Msgs, syslog.LOG_ERR, "Successfully set OpenSIPS xlog level to "+newlvldesc)
 			}
 		} else {
 			// bad lvl desc from form
