@@ -11,6 +11,8 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.1.7 2/28/2026 Switch to sipexer due to bug in opensips-cli
+// v1.1.6 2/27/2026 Fixed crontab delete from send_msgs
 // v1.1.5 2/26/2026 Enhanced messages when changing log/xlog levels for OpenSIPS
 // v1.1.4 2/25/2026 Build fixes for low memory hosts - works on host w/ 250m free memory
 // v1.1.3 2/13/2026 Turn off PN in client config when no Linphone account
@@ -913,32 +915,48 @@ func send_msgs(c chan bool) {
 					msgtype = "application/vnd.gsma.rcs-ft-http+xml"
 				}
 				// send SIP MESSAGE via OpenSIPS-CLI management interface (MI)
-				cmdout, err := exec.Command("opensips-cli", "-x", "mi", "t_uac_dlg", "method=MESSAGE", fmt.Sprintf("ruri=sips:%s@%s;transport=tls", thisrec.toid.String, thisrec.todom.String),
-					fmt.Sprintf("next_hop=sips:%s", "localhost"),
-					fmt.Sprintf("headers=To: sips:%s@%s\\r\\nFrom: sips:%s@%s\\r\\nContent-Type: %s\\r\\n", thisrec.toid.String, thisrec.todom.String, thisrec.fromid.String, thisrec.fromdom.String, msgtype),
-					fmt.Sprintf("body=%s", thisrec.message.String)).Output()
-				if err != nil {
-					ml.mylog(syslog.LOG_WARNING, "Failed to send message via OpenSIPS CLI: "+err.Error())
-					clirslt = err.Error()
+				//cmdout, err := exec.Command("opensips-cli", "-x", "mi", "t_uac_dlg", "method=MESSAGE", fmt.Sprintf("ruri=sips:%s@%s;transport=tls", thisrec.toid.String, thisrec.todom.String),
+				//	fmt.Sprintf("next_hop=sips:%s", "localhost"),
+				//	fmt.Sprintf("headers=To: sips:%s@%s\\r\\nFrom: sips:%s@%s\\r\\nContent-Type: %s\\r\\n", thisrec.toid.String, thisrec.todom.String, thisrec.fromid.String, thisrec.fromdom.String, msgtype),
+				//	fmt.Sprintf("body=%s", thisrec.message.String)).Output()
+				//if err != nil {
+				//	ml.mylog(syslog.LOG_WARNING, "Failed to send message via OpenSIPS CLI: "+err.Error())
+				//	clirslt = err.Error()
+				//} else {
+				//	ml.mylog(syslog.LOG_DEBUG, "OpenSIPS CLI result: "+string(cmdout))
+				//	// parse the status message from the JSON response
+				//	type jresp struct {
+				//		Status string
+				//	}
+				//	var oresp jresp
+				//	err = json.Unmarshal(cmdout, &oresp)
+				//	if err != nil {
+				//		ml.mylog(syslog.LOG_WARNING, "Failed to parse results from OpenSIPS CLI: "+err.Error())
+				//		clirslt = err.Error()
+				//	} else {
+				//		// 200/202 are a success!
+				//		if oresp.Status == "200 Ok" || oresp.Status == "202 Accepted" {
+				//			clirslt = oresp.Status[:3]
+				//		} else {
+				//			clirslt = oresp.Status
+				//		}
+				//	}
+				//}
+				// use sipexer to send message.  opensips-cli having issues...
+				cmd := exec.Command("/scripts/sipexer", "-message", "-xh", "Content-Type: "+msgtype,
+					"-to-uri", fmt.Sprintf("sips:%s@%s", thisrec.toid.String, thisrec.todom.String),
+					"-from-uri", fmt.Sprintf("sips:%s@%s", thisrec.fromid.String, thisrec.fromdom.String),
+					"-ruri", fmt.Sprintf("sips:%s@%s", thisrec.toid.String, thisrec.todom.String),
+					"-mb", thisrec.message.String,
+					"udp:127.0.0.1:5060")
+				out, err := cmd.Output()
+				exitcode := cmd.ProcessState.ExitCode()
+				clirslt = strconv.Itoa(exitcode)
+				n := bytes.IndexByte(out[:], 0)
+				if exitcode != 200 && exitcode != 202 {
+					ml.mylog(syslog.LOG_ERR, "sipexec: "+strings.Join(cmd.Args, " ")+"\nExitCode = "+clirslt+"\n "+string(out[:n]))
 				} else {
-					ml.mylog(syslog.LOG_DEBUG, "OpenSIPS CLI result: "+string(cmdout))
-					// parse the status message from the JSON response
-					type jresp struct {
-						Status string
-					}
-					var oresp jresp
-					err = json.Unmarshal(cmdout, &oresp)
-					if err != nil {
-						ml.mylog(syslog.LOG_WARNING, "Failed to parse results from OpenSIPS CLI: "+err.Error())
-						clirslt = err.Error()
-					} else {
-						// 200/202 are a success!
-						if oresp.Status == "200 Ok" || oresp.Status == "202 Accepted" {
-							clirslt = oresp.Status[:3]
-						} else {
-							clirslt = oresp.Status
-						}
-					}
+					ml.mylog(syslog.LOG_DEBUG, "sipexec: "+strings.Join(cmd.Args, " ")+"\nExitCode = "+clirslt+"\n "+string(out[:n]))
 				}
 				// update the message status in the db
 				sql_update_status_via_rowid := "UPDATE send_msgs SET sent_ts = CAST(strftime('%s', 'now') AS INTEGER),msgstatus = ?, trycnt = trycnt + 1 WHERE rowid = ?;"

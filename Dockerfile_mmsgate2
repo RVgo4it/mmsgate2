@@ -67,6 +67,7 @@ RUN	if [ ${TARGETPLATFORM} != ${BUILDPLATFORM} ] ; then \
 	  fi ; \
 	fi && \
 	cd ~/mmsgate2 && \
+	go get -u && go mod tidy && \
 	CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o ./mmsgate2
 
 # download the LEGO_VER image (if host <1g mem) or compile latest lego
@@ -96,6 +97,13 @@ RUN	mkdir ~/lego && cd ~/lego && \
 	  GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install -v github.com/go-acme/lego/v4/cmd/lego@latest && \
 	  { cp /go/bin/${TARGETOS}_${TARGETARCH}/lego ~/lego/ || cp /go/bin/lego ~/lego/ ; } \
 	fi
+
+# compile sipexer
+RUN	git clone https://github.com/miconda/sipexer && \
+	cd sipexer && \
+	go get ./... && \
+	go get -u && go mod tidy && \
+	GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build .
 
 # This builds a MMSgate2 image from the OpenSIPS installed image
 FROM	${REG}rvgo4it/opensips
@@ -153,7 +161,7 @@ RUN	mv /var/spool/cron/crontabs /etc/opensips/ && \
 	{ crontab -l; echo '*/10 * * * * . /etc/profile; /scripts/preprocchk.sh'; } | crontab - && \
 	{ crontab -l; echo '5,15,25,35,45,55 * * * * . /etc/profile; /scripts/dynudnschk.sh'; } | crontab - && \
 	{ crontab -l; echo '0 2 * * * . /etc/opensips/globalcfg.sh; find $LOCALMEDIA -mtime +90 ! -name '"'"'contacts.vcard'"'"' ! -name '"'"'*.xml'"'"' ! -name '"'"'*-cfg.png'"'"' -delete'; } | crontab - && \
-	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
+	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("\%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
 	{ crontab -l; echo '45 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
 	{ crontab -l; echo '55 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
 
@@ -193,7 +201,8 @@ RUN	addgroup db && \
 
 # get go exec
 COPY	--from=gobuild /root/mmsgate2/mmsgate2 /scripts/
-COPY	--from=gobuild /root/lego /bin/lego
+COPY	--from=gobuild /root/lego/lego /usr/bin/lego
+COPY	--from=gobuild /root/sipexer/sipexer /scripts/
 
 USER	mmsgateadm
 WORKDIR	/home/mmsgateadm

@@ -547,7 +547,7 @@ Normally, the first account is selected as the default account.  When you pull-d
     docker buildx rm bldr
     ```
   
-  - No need for local registry going forward, paste these commands for final cleanup:
+  - No need for local registry going forward.  Paste these commands for final cleanup:
   
   - ```bash
     docker stop registry
