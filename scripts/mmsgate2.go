@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.1.8 3/1/2026 Disable DNS failover in opensips.cfg and other minor bugs
 // v1.1.7 2/28/2026 Switch to sipexer due to bug in opensips-cli
 // v1.1.6 2/27/2026 Fixed crontab delete from send_msgs
 // v1.1.5 2/26/2026 Enhanced messages when changing log/xlog levels for OpenSIPS
