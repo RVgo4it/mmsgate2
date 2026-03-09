@@ -11,6 +11,10 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.1.12 3/9/2026 Added reminder abount Linphone acct service url
+// v1.1.11 3/8/2026 client config bug fix, forced misc/config-uri in config xml to be blank/" ", added app/keep_service_alive=1
+// v1.1.10 3/7/2026 Add "to" param to /file url to auto send mms
+// v1.1.9 3/6/2026 Minor bug fix in wizard
 // v1.1.8 3/1/2026 Disable DNS failover in opensips.cfg and other minor bugs
 // v1.1.7 2/28/2026 Switch to sipexer due to bug in opensips-cli
 // v1.1.6 2/27/2026 Fixed crontab delete from send_msgs
@@ -582,6 +586,26 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 			// display success message.
 			w.Write([]byte(xml))
 			ml.mylog(syslog.LOG_DEBUG, "Upload successful.")
+			// url have a to=?
+			toid := r.Form.Get("to")
+			if toid != "" {
+				// lookup the to account and send it
+				acctrows, err := query2map("SELECT account, domain FROM subacct WHERE account = ?", toid)
+				if err != nil {
+					ml.mylog(syslog.LOG_ERR, "Query missing UUID sub accts failed: "+err.Error())
+				} else {
+					// maybe a from= param?  if not, default 1099
+					fromid := r.Form.Get("from")
+					if fromid == "" {
+						fromid = "1099"
+					}
+					for _, row := range acctrows {
+						err = insert_msg(fromid, row["domain"].(string), row["account"].(string), row["domain"].(string), xml, "0000000000", "MMS", "0", "0")
+					}
+					// bump the send queue
+					c <- true
+				}
+			}
 		} else {
 			// no file?
 			http.Error(w, "No Content", http.StatusNoContent)
@@ -944,7 +968,7 @@ func send_msgs(c chan bool) {
 				//	}
 				//}
 				// use sipexer to send message.  opensips-cli having issues...
-				cmd := exec.Command("/scripts/sipexer", "-message", "-xh", "Content-Type: "+msgtype,
+				cmd := exec.Command("/scripts/sipexer", "-message", "-ct", msgtype,
 					"-to-uri", fmt.Sprintf("sips:%s@%s", thisrec.toid.String, thisrec.todom.String),
 					"-from-uri", fmt.Sprintf("sips:%s@%s", thisrec.fromid.String, thisrec.fromdom.String),
 					"-ruri", fmt.Sprintf("sips:%s@%s", thisrec.toid.String, thisrec.todom.String),
@@ -2128,8 +2152,11 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 	// some common changes to the config...
 	// misc/config-uri for loading XML at each start... including in XML causes issues w/ sip/default_proxy
 	for secname, ents := range map[string][]Entry{"nat_policy_0": {{"ref", true, newref}, {"stun_server", true, "stun.linphone.org"}},
-		"misc": {{"contacts-vcard-list", true, vcardurl}, {"hide_chat_rooms_from_removed_proxies", true, "0"}, {"file_transfer_server_url", true, urlfile}, {"log_collection_upload_server_url", true, urlfile}},
-		"sip":  {{"media_encryption", true, "srtp"}, {"media_encryption_mandatory", true, "1"}, {"im_notif_policy", true, "none"}, {"default_proxy", true, "0"}, {"use_ipv6", true, "0"}, {"publish_presence", true, "0"}}} {
+		"misc": {{"contacts-vcard-list", true, vcardurl}, {"hide_chat_rooms_from_removed_proxies", true, "0"}, {"file_transfer_server_url", true, urlfile},
+			{"config-uri", true, " "}, {"log_collection_upload_server_url", true, urlfile}},
+		"app": {{"keep_service_alive", true, "1"}},
+		"sip": {{"media_encryption", true, "srtp"}, {"media_encryption_mandatory", true, "1"}, {"im_notif_policy", true, "none"}, {"default_proxy", true, "0"},
+			{"use_ipv6", true, "0"}, {"publish_presence", true, "0"}}} {
 		for _, ent := range ents {
 			add2xml(secname, ent)
 		}
@@ -2792,6 +2819,8 @@ func linmenu(Form url.Values, data *dat) (retfrorm string, reterr error) {
 	if emailverifymsg {
 		data.Msgs = append(data.Msgs, template.HTML("Email verification codes last 10 minutes.  If you don't receive the code, entering a random invalid code will remove the email and you can try again."))
 	}
+	// note/reminder for https://subscribe.linphone.org/
+	data.Msgs = append(data.Msgs, template.HTML("To recover Linphone accounts via email, remove excessive devices and other actions, visit <a href='https://subscribe.linphone.org/' target='_blank'>Linphone Free SIP Service</a>."))
 	return
 }
 
@@ -2985,7 +3014,7 @@ func get_global(gsetting string) (value string, err error) {
 }
 func set_global(gsetting string, value string) (err error) {
 	path := os.Getenv("GLOBALCFG")
-	id := os.Getenv("USERNAME")
+	id := os.Getenv("USER")
 	var out []byte
 	if id == "mmsgate" {
 		out, err = exec.Command("sudo", path, "gup", gsetting, value).Output()
