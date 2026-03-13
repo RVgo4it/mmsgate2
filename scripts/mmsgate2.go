@@ -11,6 +11,9 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.1.15 3/12/2026 Bug fix in opensips.cfg for missing some events for msilo_dump
+// v1.1.14 3/11/2026 Bug fix, needed url.PathEscape for file upload xml
+// v1.1.13 3/10/2026 Added mehod to update opensips.cfg from new image, new column (remote) in mmsgate.sqlite, config codecs_audio/GSM=1 and others supported by voip.ms
 // v1.1.12 3/9/2026 Added reminder abount Linphone acct service url
 // v1.1.11 3/8/2026 client config bug fix, forced misc/config-uri in config xml to be blank/" ", added app/keep_service_alive=1
 // v1.1.10 3/7/2026 Add "to" param to /file url to auto send mms
@@ -219,12 +222,14 @@ func init_linphonedb() {
 func init_subacctdb() {
 	// build tables if needed
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS subacct (account TEXT UNIQUE, password TEXT, callerid TEXT, ext TEXT, smsmms INT DEFAULT 1, " +
-		"linphone TEXT, uuid TEXT, tls TEXT, max_expiry TEXT, internal_cnam TEXT, description TEXT, ip TEXT, domain TEXT);")
+		"linphone TEXT, uuid TEXT, tls TEXT, max_expiry TEXT, internal_cnam TEXT, description TEXT, ip TEXT, domain TEXT, remote TEXT);")
 	if err != nil {
 		ml.mylog(syslog.LOG_EMERG, "Error creating DB table: "+err.Error())
 		// can't go on
 		panic(errors.New("Error creating DB table: " + err.Error()))
 	}
+	// new column 'remote' add if not there, ignote error
+	db.Exec("ALTER TABLE subacct ADD COLUMN remote TEXT;")
 	_, err = db.Exec("CREATE INDEX IF NOT EXISTS sa_ip ON subacct (ip);")
 	if err != nil {
 		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
@@ -550,7 +555,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 				fname = files[i].Filename
 				dname := localmedia + "/" + uuid.String()
 				fpath := dname + "/" + fname
-				furl = proto + "://" + dnsname + ":" + webport + pathget + "/" + uuid.String() + "/" + fname
+				furl = proto + "://" + dnsname + ":" + webport + pathget + "/" + uuid.String() + "/" + url.PathEscape(fname)
 				err = os.MkdirAll(dname, 0777)
 				if err != nil {
 					ml.mylog(syslog.LOG_ERR, "Error creating path: ("+dname+"): "+err.Error())
@@ -2150,11 +2155,15 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 		}
 	}
 	// some common changes to the config...
-	// misc/config-uri for loading XML at each start... including in XML causes issues w/ sip/default_proxy
+	// added misc/transient_provisioning=1 ... including in XML causes issues w/ sip/default_proxy
 	for secname, ents := range map[string][]Entry{"nat_policy_0": {{"ref", true, newref}, {"stun_server", true, "stun.linphone.org"}},
 		"misc": {{"contacts-vcard-list", true, vcardurl}, {"hide_chat_rooms_from_removed_proxies", true, "0"}, {"file_transfer_server_url", true, urlfile},
-			{"config-uri", true, " "}, {"log_collection_upload_server_url", true, urlfile}},
-		"app": {{"keep_service_alive", true, "1"}},
+			{"log_collection_upload_server_url", true, urlfile}, {"transient_provisioning", true, "1"}, {"add_missing_audio_codecs", true, "1"}},
+		"app":           {{"keep_service_alive", true, "1"}},
+		"audio_codec_0": {{"mime", true, "PCMU"}, {"rate", true, "8000"}, {"channels", true, "1"}, {"enabled", true, "1"}},
+		"audio_codec_1": {{"mime", true, "GSM"}, {"rate", true, "13000"}, {"channels", true, "1"}, {"enabled", true, "1"}},
+		"audio_codec_2": {{"mime", true, "G729"}, {"rate", true, "8000"}, {"channels", true, "1"}, {"enabled", true, "1"}},
+		"audio_codec_3": {{"mime", true, "G722"}, {"rate", true, "64000"}, {"channels", true, "1"}, {"enabled", true, "1"}},
 		"sip": {{"media_encryption", true, "srtp"}, {"media_encryption_mandatory", true, "1"}, {"im_notif_policy", true, "none"}, {"default_proxy", true, "0"},
 			{"use_ipv6", true, "0"}, {"publish_presence", true, "0"}}} {
 		for _, ent := range ents {

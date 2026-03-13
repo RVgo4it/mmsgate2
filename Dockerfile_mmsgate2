@@ -150,6 +150,11 @@ RUN	useradd -ms /bin/bash mmsgateadm && \
 COPY	--chown=root mmsgate2/scripts/ /scripts/
 COPY	--chown=root mmsgate2/globalcfg.txt mmsgate2/globalcfg.sh mmsgate2/opensips.cfg /etc/opensips/
 
+# have a backup opensips config file
+RUN	md5sum /etc/opensips/opensips.cfg >/etc/opensips/opensips.cfg.md5sum && \
+	mkdir /etc/opensips-bak && \
+	cp /etc/opensips/opensips.cfg* /etc/opensips-bak
+
 # cron new config location
 # have cron run preprocchk.sh every 10 minutes, dynudnschk.sh 5 minutes after that
 # also, clean up media files (not xml, vcard or qrcode files) over 90 days old once a day, 2 am

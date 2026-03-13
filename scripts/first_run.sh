@@ -21,6 +21,19 @@ else
   { crontab -l; echo "$M $H1,$H2 * * * /scripts/certs.sh renew"; } | crontab -
 fi
 
+# need update to opensips.cfg?
+if ! diff /etc/opensips/opensips.cfg.md5sum /etc/opensips-bak/opensips.cfg.md5sum; then
+  # check if opensips.cfg was modified
+  md5sum /etc/opensips/opensips.cfg >/tmp/opensips.cfg.md5sum
+  if diff /etc/opensips/opensips.cfg.md5sum /tmp/opensips.cfg.md5sum; then
+    # copy over new/cfg from new image
+    cp /etc/opensips-bak/opensips.cfg* /etc/opensips/
+    [ $DBG ] && log "Installed newer files from /etc/opensips-bak"
+  else
+    log "NOTICE: Newer files in /etc/opensips-bak not installed.  Found opensips.cfg was modified."
+  fi
+fi
+
 # db not yet exist?
 if [ ! -e $DBPATH ]; then
   # create db

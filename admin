@@ -1,6 +1,7 @@
 server {
     listen 38000 default_server;
     listen [::]:38000 default_server ipv6only=on;
+    client_max_body_size 1G;
 
     location / {
         proxy_pass http://127.0.0.1:38080;

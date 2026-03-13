@@ -397,7 +397,7 @@ The QR code is the easiest way to configure the client.
 
 Once the client is installed, open it and respond to the usual prompts.  Stop short of registering or providing any credentials.  When offered, use the camera to scan the QR code.   Once scanned, logon is done and you are online.  
 
-Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.    
+Some clients cannot scan a QR code.  For them, you will need to copy-and-paste the XML Config URL into the client.
 
 If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages at any time.
 
@@ -557,3 +557,21 @@ Normally, the first account is selected as the default account.  When you pull-d
     ```
   
   - You now have the needed local image.  Use MMSGate2 normally, starting at the [Docker Container](#docker-container), skipping the "docker pull" command.
+
+- Can I edit config files directly?
+  
+  - Yes.  There are two primary config files.  One is /etc/opensips/opensips.cfg and the other is /etc/opensips/globalcfg.txt.
+  
+  - To edit globalcfg.txt, that contains most modified values, use this command:
+  
+  - ```bash
+    docker exec -it mmsgate2 sudo nano /etc/opensips/globalcfg.txt
+    ```
+  
+  - To edit opensips.cfg, use this command:
+  
+  - ```bash
+    docker exec -it mmsgate2 sudo nano /etc/opensips/opensips.cfg
+    ```
+  
+  - Important: The opensips.cfg file is both a config file, where settings should be preserved during software upgrades, **and** a script file, where software upgrades should be applied.  If you modify it, the next software update will not overwrite the modified file.  You must manually review and copy over the new opensips.cfg file from /etc/opensips-bak.   If you never modify it, it will get upgraded normally with new software releases.  
