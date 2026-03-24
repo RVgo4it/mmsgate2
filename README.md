@@ -375,7 +375,11 @@ Once done setting preferences, click "Client Config".
 
 ![](images/client.png)
 
-By default, the client config includes an encrypted copy of the sub account password.  This assumed the authentication "realm" matches the domain/server for the VoIP.ms PoP.  It normally does match.  If using Push Notification, the config will include all sub accounts assigned the same Linphone account.  If not using Push Notification, additional sub accounts can be selected.  Each sub account can be used on only one client at a time.  If the password preference is changed or a sub account added, press Refresh.  If the encrypted password is not included, the client will prompt for a password.  You may also choose to include the password un-encrypted, allowing the client to connect via a non-standard realm.  Once ready, click the "Generate Config" button.
+By default, the client config includes the sub account password in plain text.  This is useful if there are multiple PoP servers for DIDs or a non-standard realm.  You can choose to encrypt the password.  This assumes the authentication "realm" matches the domain/server for the VoIP.ms PoP.  It normally does match.  If no password is included, the client will prompt for a password.
+
+If using Push Notification, the config will include all sub accounts assigned the same Linphone account.  If not using Push Notification, additional sub accounts can be selected.  Each sub account can be used on only one client at a time.  If the password preference is changed or a sub account added, press Refresh.  Once ready, click the "Generate Config" button.
+
+### Client Install
 
 Install a Linphone client.  They are available via app stores for mobile devices or as a download for laptops and desktops.
 

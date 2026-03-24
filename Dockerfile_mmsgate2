@@ -94,8 +94,12 @@ RUN	mkdir ~/lego && cd ~/lego && \
 	  tar -xvzf lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz ; \
 	else \
 	  echo Installing lego && \
-	  GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install -v github.com/go-acme/lego/v4/cmd/lego@latest && \
-	  { cp /go/bin/${TARGETOS}_${TARGETARCH}/lego ~/lego/ || cp /go/bin/lego ~/lego/ ; } \
+	  cd ~ && \
+	  git clone https://github.com/go-acme/lego && \
+	  cd lego && \
+	  go get -u ./... && \
+	  go mod tidy && \
+	  GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build; \
 	fi
 
 # compile sipexer
@@ -206,7 +210,7 @@ RUN	addgroup db && \
 
 # get go exec
 COPY	--from=gobuild /root/mmsgate2/mmsgate2 /scripts/
-COPY	--from=gobuild /root/lego/lego /usr/bin/lego
+COPY	--from=gobuild /root/lego/dist/lego /usr/bin/lego
 COPY	--from=gobuild /root/sipexer/sipexer /scripts/
 
 USER	mmsgateadm

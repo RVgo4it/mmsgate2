@@ -11,6 +11,8 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.2.1 3/23/2026 Fix for no internal cname and MMS XML until field
+// v1.2.0 3/13/2026 Added support for Internal Extension (Multi-Tenant) Locations and multiple POP servers
 // v1.1.15 3/12/2026 Bug fix in opensips.cfg for missing some events for msilo_dump
 // v1.1.14 3/11/2026 Bug fix, needed url.PathEscape for file upload xml
 // v1.1.13 3/10/2026 Added mehod to update opensips.cfg from new image, new column (remote) in mmsgate.sqlite, config codecs_audio/GSM=1 and others supported by voip.ms
@@ -217,19 +219,23 @@ func init_linphonedb() {
 }
 
 /*
- * Setup sub account table
+ * Setup sub account table and other related tables
  */
 func init_subacctdb() {
 	// build tables if needed
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS subacct (account TEXT UNIQUE, password TEXT, callerid TEXT, ext TEXT, smsmms INT DEFAULT 1, " +
 		"linphone TEXT, uuid TEXT, tls TEXT, max_expiry TEXT, internal_cnam TEXT, description TEXT, ip TEXT, domain TEXT, remote TEXT);")
 	if err != nil {
-		ml.mylog(syslog.LOG_EMERG, "Error creating DB table: "+err.Error())
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB table subacct: "+err.Error())
 		// can't go on
-		panic(errors.New("Error creating DB table: " + err.Error()))
+		panic(errors.New("Error creating DB table subacct: " + err.Error()))
 	}
 	// new column 'remote' add if not there, ignote error
 	db.Exec("ALTER TABLE subacct ADD COLUMN remote TEXT;")
+	// also internal_extension_location
+	db.Exec("ALTER TABLE subacct ADD COLUMN extloc TEXT;")
+	// also uriext
+	db.Exec("ALTER TABLE subacct ADD COLUMN uriext TEXT;")
 	_, err = db.Exec("CREATE INDEX IF NOT EXISTS sa_ip ON subacct (ip);")
 	if err != nil {
 		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
@@ -243,6 +249,30 @@ func init_subacctdb() {
 		panic(errors.New("Error creating DB index: " + err.Error()))
 	}
 	_, err = db.Exec("CREATE INDEX IF NOT EXISTS sa_linacct ON subacct (linphone,account);")
+	if err != nil {
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
+		// can't go on
+		panic(errors.New("Error creating DB index: " + err.Error()))
+	}
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS dids (did TEXT UNIQUE, desc TEXT, webhook TEXT, webhookenb TEXT, smsenb TEXT, pop TEXT);")
+	if err != nil {
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB table dids: "+err.Error())
+		// can't go on
+		panic(errors.New("Error creating DB table dids: " + err.Error()))
+	}
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS dids_did ON dids (did);")
+	if err != nil {
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
+		// can't go on
+		panic(errors.New("Error creating DB index: " + err.Error()))
+	}
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS pops (pop TEXT UNIQUE, name TEXT, shortname TEXT, hostname TEXT);")
+	if err != nil {
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB table pops: "+err.Error())
+		// can't go on
+		panic(errors.New("Error creating DB table pops: " + err.Error()))
+	}
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS pops_pop ON pops (pop);")
 	if err != nil {
 		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
 		// can't go on
@@ -360,10 +390,25 @@ func pop_subacctdb() (msg []string) {
 		ml.mylog(syslog.LOG_ERR, "VoIP.ms's API call failed, dids parse result: "+err.Error())
 		return
 	}
+	// empty out the dids table
+	_, err = db.Exec("DELETE FROM dids;")
+	if err != nil {
+		msg = append(msg, "Failed to empty dids table: "+err.Error())
+		ml.mylog(syslog.LOG_ERR, "Failed to empty dids table: "+err.Error())
+		return
+	}
 	// loop each DID
 	for _, did := range odids.Dids {
 		// store it later so we can confirm CID for sub acct
 		didsmap[did.Did] = did.Description
+		// add did to db
+		_, err := db.Exec("INSERT INTO dids (did,desc,webhook,webhookenb,smsenb,pop) VALUES(?,?,?,?,?,?)",
+			did.Did, did.Description, did.Webhook, did.Webhook_enabled, did.Sms_enabled, did.Pop)
+		if err != nil {
+			msg = append(msg, "Insert into dids DB table failed: "+err.Error())
+			ml.mylog(syslog.LOG_ERR, "Insert into dids DB table failed: "+err.Error())
+			return
+		}
 		// check that web hook correct for this DID
 		if did.Webhook != webpostpath || did.Webhook_enabled != "1" {
 			msg = append(msg, "Please enable 'SMS/MMS Webhook URL' for DID "+did.Did+" and set it to "+webpostpath)
@@ -375,6 +420,49 @@ func pop_subacctdb() (msg []string) {
 			ml.mylog(syslog.LOG_WARNING, "Please enable 'Message Service (SMS/MMS)' for DID "+did.Did)
 		}
 	}
+
+	// get server pops
+	bodysrv, err := voip_api(fmt.Sprintf("https://voip.ms/api/v1/rest.php?api_username=%s&api_password=%s&method=getServersInfo", apiid, url.QueryEscape(apipw)))
+	if err != nil {
+		ml.mylog(syslog.LOG_ERR, "API call for getServersInfo: "+err.Error())
+		msg = append(msg, "Error API call for getServersInfo: "+err.Error())
+	}
+	ml.mylog(syslog.LOG_DEBUG, "VoIP.ms API getServersInfo: "+string(bodysrv))
+	// parse the JSON
+	type server struct {
+		Server_pop       string
+		Server_name      string
+		Server_shortname string
+		Server_hostname  string
+	}
+	type servers struct {
+		Servers []server
+	}
+	var oservers servers
+	err = json.Unmarshal(bodysrv, &oservers)
+	if err != nil {
+		ml.mylog(syslog.LOG_ERR, "API call for configmenu/getServersInfo/parse: "+err.Error())
+		msg = append(msg, "Error API call for getServersInfo/parse: "+err.Error())
+	}
+	// empty out the pops table
+	_, err = db.Exec("DELETE FROM pops;")
+	if err != nil {
+		msg = append(msg, "Failed to empty pops table: "+err.Error())
+		ml.mylog(syslog.LOG_ERR, "Failed to empty pops table: "+err.Error())
+		return
+	}
+	// loop each pop
+	for _, pop := range oservers.Servers {
+		// add pop to db
+		_, err := db.Exec("INSERT INTO pops (pop,name,shortname,hostname) VALUES(?,?,?,?)",
+			pop.Server_pop, pop.Server_name, pop.Server_shortname, pop.Server_hostname)
+		if err != nil {
+			msg = append(msg, "Insert into dids DB table failed: "+err.Error())
+			ml.mylog(syslog.LOG_ERR, "Insert into dids DB table failed: "+err.Error())
+			return
+		}
+	}
+
 	// drop temp table for initial sub acct load
 	_, err = db.Exec("DROP TABLE IF EXISTS tsubacct;")
 	if err != nil {
@@ -383,7 +471,7 @@ func pop_subacctdb() (msg []string) {
 		return
 	}
 	// temp table for initial sub acct load
-	_, err = db.Exec("CREATE TEMPORARY TABLE tsubacct (account TEXT UNIQUE, password TEXT, callerid TEXT, ext TEXT, tls TEXT, max_expiry TEXT, internal_cnam TEXT, description TEXT);")
+	_, err = db.Exec("CREATE TEMPORARY TABLE tsubacct (account TEXT UNIQUE, password TEXT, callerid TEXT, ext TEXT, tls TEXT, max_expiry TEXT, internal_cnam TEXT, description TEXT, extloc TEXT, uriext TEXT);")
 	if err != nil {
 		msg = append(msg, "Failed create temp table: "+err.Error())
 		ml.mylog(syslog.LOG_ERR, "Failed create temp table: "+err.Error())
@@ -399,15 +487,17 @@ func pop_subacctdb() (msg []string) {
 	ml.mylog(syslog.LOG_DEBUG, "VoIP.ms API getSubAccounts: "+string(body))
 	// parse the JSON result
 	type account struct {
-		Account            string
-		Internal_extension string
-		Callerid_number    string
-		Password           string
+		Account                     string
+		Internal_extension          string
+		Callerid_number             string
+		Internal_extension_location string
+		Password                    string
 		// sometimes the API returns a floating point number and not a string.  we'll accept either (any).
-		Sip_traffic   any
-		Max_expiry    string
-		Internal_cnam string
-		Description   string
+		Sip_traffic          any
+		Max_expiry           string
+		Enable_internal_cnam string
+		Internal_cnam        string
+		Description          string
 	}
 	type accts struct {
 		Accounts []account
@@ -422,17 +512,30 @@ func pop_subacctdb() (msg []string) {
 	// loop each sub acct
 	rows := int64(0)
 	for _, acct := range oaccts.Accounts {
-		// we store the "10" prefix in the db
+		// acct #
+		rootacct := strings.Split(acct.Account, "_")[0]
+		// determine extensions to reach acct
+		uriext := ""
 		if acct.Internal_extension != "" {
+			//if acct.Internal_extension_location == "0" {
+			//	uriext = rootacct + acct.Internal_extension
+			//} else {
+			uriext = rootacct + "#" + acct.Internal_extension_location + "#" + acct.Internal_extension
+			//}
+			// we store the "10" prefix in the db
 			acct.Internal_extension = "10" + acct.Internal_extension
+		}
+		// check if internal cnam valid
+		if acct.Enable_internal_cnam == "0" {
+			acct.Internal_cnam = ""
 		}
 		// if CID not a valid DID, ignore it
 		if _, ok := didsmap[acct.Callerid_number]; !ok {
 			acct.Callerid_number = ""
 		}
 		// insert into temp DB
-		sqlrslt, err := db.Exec("INSERT INTO tsubacct (account,password,callerid,ext,tls,max_expiry,internal_cnam,description) VALUES(?,?,?,?,?,?,?,?)",
-			acct.Account, acct.Password, acct.Callerid_number, acct.Internal_extension, acct.Sip_traffic, acct.Max_expiry, acct.Internal_cnam, acct.Description)
+		sqlrslt, err := db.Exec("INSERT INTO tsubacct (account,password,callerid,ext,tls,max_expiry,internal_cnam,description,extloc, uriext) VALUES(?,?,?,?,?,?,?,?,?,?)",
+			acct.Account, acct.Password, acct.Callerid_number, acct.Internal_extension, acct.Sip_traffic, acct.Max_expiry, acct.Internal_cnam, acct.Description, acct.Internal_extension_location, uriext)
 		if err != nil {
 			msg = append(msg, "Insert into temp acct DB table failed: "+err.Error())
 			ml.mylog(syslog.LOG_ERR, "Insert into temp acct DB table failed: "+err.Error())
@@ -444,7 +547,7 @@ func pop_subacctdb() (msg []string) {
 	}
 	ml.mylog(syslog.LOG_DEBUG, "Inserted rows into temp acct DB: "+fmt.Sprint(rows))
 	// append any new sub accts
-	_, err = db.Exec("INSERT OR IGNORE INTO subacct (account,password,callerid,ext,tls,max_expiry) SELECT account,password,callerid,ext,tls,max_expiry FROM tsubacct;")
+	_, err = db.Exec("INSERT OR IGNORE INTO subacct (account,password,callerid,ext,tls,max_expiry,description,extloc,uriext) SELECT account,password,callerid,ext,tls,max_expiry,description,extloc,uriext FROM tsubacct;")
 	if err != nil {
 		msg = append(msg, "Insert into sub acct DB table failed: "+err.Error())
 		ml.mylog(syslog.LOG_ERR, "Insert into sub acct DB table failed: "+err.Error())
@@ -459,7 +562,7 @@ func pop_subacctdb() (msg []string) {
 	}
 	// update the values that may have change at voip.ms.  cast tls due to api returning a string or float
 	_, err = db.Exec("UPDATE subacct SET password = t.password, callerid = t.callerid, ext = t.ext, tls = CAST(t.tls AS INTEGER), max_expiry = t.max_expiry, " +
-		"internal_cnam = t.internal_cnam, description = t.description FROM (SELECT * FROM tsubacct) AS t WHERE subacct.account = t.account;")
+		"internal_cnam = t.internal_cnam, description = t.description, extloc = t.extloc, uriext = t.uriext FROM (SELECT * FROM tsubacct) AS t WHERE subacct.account = t.account;")
 	if err != nil {
 		msg = append(msg, "Update sub acct DB table failed: "+err.Error())
 		ml.mylog(syslog.LOG_ERR, "Update sub acct DB table failed: "+err.Error())
@@ -478,10 +581,16 @@ func pop_subacctdb() (msg []string) {
 		if err != nil {
 			ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/uuid update: "+err.Error())
 			msg = append(msg, "Error SQL query for uuid update: "+err.Error())
+			return
 		}
 	}
-	// done
-	ml.mylog(syslog.LOG_DEBUG, "Result msg: "+strings.Join(msg, "\n"))
+	// update domian
+	_, err = db.Exec("UPDATE subacct SET domain = (SELECT p.hostname FROM dids d, pops p WHERE d.pop = p.pop AND subacct.callerid = d.did);")
+	if err != nil {
+		msg = append(msg, "Update sub acct DB table failed: "+err.Error())
+		ml.mylog(syslog.LOG_ERR, "Update sub acct DB table failed: "+err.Error())
+		return
+	}
 	return
 }
 
@@ -528,7 +637,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		pathget := os.Getenv("PATHGET")
 		// defaults for message
 		mimetype := "application/binary"
-		until := time.Now().Add(time.Duration(-365) * time.Hour * 24).Format(time.RFC3339)
+		until := time.Now().Add(time.Duration(365) * time.Hour * 24).Format(time.RFC3339)
 		// parse the multipart form in the request
 		err := r.ParseMultipartForm(100000)
 		if err != nil {
@@ -875,6 +984,7 @@ func send_msgs(c chan bool) {
 		rowid     sql.NullInt64
 		msgtype   sql.NullString
 		trycnt    sql.NullInt64
+		remote    sql.NullString
 	}
 	// loop forever! maybe...
 	for {
@@ -899,13 +1009,14 @@ func send_msgs(c chan bool) {
 			// select pending messages, i.e. status not 200/202.  group by toid and min(rowid) to just see the oldest message for each toid
 			// also, skip messages we already tried within 10 minutes
 			sql_select_pending :=
-				"SELECT rcvd_ts,sent_ts,fromid,fromdom,toid,todom,message,msgstatus,did,rowid,msgtype,trycnt " +
+				"SELECT rcvd_ts,sent_ts,fromid,fromdom,toid,todom,message,msgstatus,did,rowid,msgtype,trycnt,IFNULL('tls:'||remote||':5061','udp:127.0.0.1:5060') " +
 					"FROM (" +
 					"    SELECT *,min(rowid) AS rowid " +
 					"    FROM send_msgs " +
 					"    WHERE msgstatus NOT IN ('200','202') " +
-					"    GROUP BY toid) " +
-					"WHERE sent_ts < CAST(strftime('%s',datetime('now','-10 minutes')) AS INTEGER) " +
+					"    GROUP BY toid)," +
+					"    subacct " +
+					"WHERE sent_ts < CAST(strftime('%s',datetime('now','-10 minutes')) AS INTEGER) AND toid = account " +
 					"ORDER BY rowid;"
 			rows, err := db.Query(sql_select_pending)
 			if err != nil {
@@ -918,7 +1029,7 @@ func send_msgs(c chan bool) {
 			for rows.Next() {
 				var thisrec rec
 				err = rows.Scan(&thisrec.rcvd_ts, &thisrec.sent_ts, &thisrec.fromid, &thisrec.fromdom, &thisrec.toid, &thisrec.todom, &thisrec.message,
-					&thisrec.msgstatus, &thisrec.did, &thisrec.rowid, &thisrec.msgtype, &thisrec.trycnt)
+					&thisrec.msgstatus, &thisrec.did, &thisrec.rowid, &thisrec.msgtype, &thisrec.trycnt, &thisrec.remote)
 				if err != nil {
 					ml.mylog(syslog.LOG_ERR, "SQL error scanning pending msgs: "+err.Error())
 					continue
@@ -978,7 +1089,7 @@ func send_msgs(c chan bool) {
 					"-from-uri", fmt.Sprintf("sips:%s@%s", thisrec.fromid.String, thisrec.fromdom.String),
 					"-ruri", fmt.Sprintf("sips:%s@%s", thisrec.toid.String, thisrec.todom.String),
 					"-mb", thisrec.message.String,
-					"udp:127.0.0.1:5060")
+					thisrec.remote.String)
 				out, err := cmd.Output()
 				exitcode := cmd.ProcessState.ExitCode()
 				clirslt = strconv.Itoa(exitcode)
@@ -1715,9 +1826,6 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 	data.Thispage = "configmenu"
 	data.Nextpage = "configmenu"
 	data.Title2 = " - Client Config"
-	// need these params
-	apiid := os.Getenv("APIID")
-	apipw := os.Getenv("APIPW")
 	// contains the accts to configure - maybe includes linphone acct
 	rows := []map[string]any{}
 	// get the subacct to configure as a start
@@ -1726,7 +1834,7 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 	linphone := ""
 	struuid := ""
 	// get info on selected acct
-	query := "SELECT account, password, callerid, uuid, linphone, max_expiry, '' AS domain FROM subacct WHERE account=?;"
+	query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account=?;"
 	row, err := query2map(query, subacct)
 	if err != nil {
 		ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[0]: "+err.Error())
@@ -1738,25 +1846,13 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 		if row[0]["linphone"] != nil {
 			linphone = row[0]["linphone"].(string)
 		}
-		// does it have a uuid for config files?
-		if row[0]["uuid"] == nil {
-			// make one for unique path
-			objuuid := uuid.New()
-			struuid = objuuid.String()
-			_, err = db.Exec("UPDATE subacct SET uuid = ? WHERE account=?;", struuid, subacct)
-			if err != nil {
-				ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/uuid update: "+err.Error())
-				data.Msgs = append(data.Msgs, template.HTML("Error SQL query for uuid update: "+err.Error()))
-			}
-		} else {
-			struuid = row[0]["uuid"].(string)
-		}
+		struuid = row[0]["uuid"].(string)
 	}
 	// if linphone for push notification, load linphone acct and other associated accts
 	if linphone != "" {
-		query := "SELECT * FROM (SELECT username AS account, password, '' AS callerid, '' AS uuid, '' AS linphone, '31536000' AS max_expiry, domain FROM linphone WHERE username=? " +
+		query := "SELECT * FROM (SELECT username AS account, password, '' AS callerid, '' AS uuid, '' AS linphone, '31536000' AS max_expiry, domain, '0' as extloc FROM linphone WHERE username=? " +
 			"UNION " +
-			"SELECT account, password, callerid, uuid, linphone, max_expiry, '' AS domain FROM subacct WHERE account!=? AND linphone = ? ) ORDER BY account;"
+			"SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account!=? AND linphone = ? ) ORDER BY account;"
 		row, err := query2map(query, linphone, subacct, linphone)
 		if err != nil {
 			ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[1+]: "+err.Error())
@@ -1774,7 +1870,7 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 			subacctadd := strings.Trim(Form.Get("cfg-username-"+si), " ")
 			if subacctadd != "" {
 				// look it up
-				query := "SELECT account, password, callerid, uuid, linphone, max_expiry, '' AS domain FROM subacct WHERE account=?;"
+				query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account=?;"
 				row, err := query2map(query, subacctadd)
 				if err != nil {
 					ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[0]: "+err.Error())
@@ -1806,70 +1902,19 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 				row["popname"] = any(popname)
 				row["pwenc"] = any(pwenc)
 			} else {
-				// get DIDs
-				bodydid, err := voip_api(fmt.Sprintf("https://voip.ms/api/v1/rest.php?api_username=%s&api_password=%s&method=getDIDsInfo&did=%s", apiid, url.QueryEscape(apipw), row["callerid"].(string)))
+				q, err := query2map("SELECT hostname, name, desc FROM dids d, pops p WHERE d.pop = p.pop AND did=?;", row["callerid"].(string))
 				if err != nil {
-					ml.mylog(syslog.LOG_ERR, "API call for configmenu/getDIDsInfo: "+err.Error())
-					data.Msgs = append(data.Msgs, template.HTML("Error API call for getDIDsInfo: "+err.Error()))
-				}
-				ml.mylog(syslog.LOG_DEBUG, "VoIP.ms API getDIDsInfo: "+string(bodydid))
-				// parse the JSON
-				type did struct {
-					Did             string
-					Description     string
-					Webhook         string
-					Webhook_enabled string
-					Sms_enabled     string
-					Pop             string
-				}
-				type dids struct {
-					Dids []did
-				}
-				var odids dids
-				err = json.Unmarshal(bodydid, &odids)
-				if err != nil {
-					ml.mylog(syslog.LOG_ERR, "API call for configmenu/getDIDsInfo/parse: "+err.Error())
-					data.Msgs = append(data.Msgs, template.HTML("Error API call for getDIDsInfo/parse: "+err.Error()))
-				}
-				if len(odids.Dids) > 0 {
-					// get server pop
-					bodysrv, err := voip_api(fmt.Sprintf("https://voip.ms/api/v1/rest.php?api_username=%s&api_password=%s&method=getServersInfo&server_pop=%s", apiid, url.QueryEscape(apipw), odids.Dids[0].Pop))
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "API call for configmenu/getServersInfo: "+err.Error())
-						data.Msgs = append(data.Msgs, template.HTML("Error API call for getServersInfo: "+err.Error()))
-					}
-					ml.mylog(syslog.LOG_DEBUG, "VoIP.ms API getServersInfo: "+string(bodysrv))
-					// parse the JSON
-					type server struct {
-						Server_name      string
-						Server_shortname string
-						Server_hostname  string
-					}
-					type servers struct {
-						Servers []server
-					}
-					var oservers servers
-					err = json.Unmarshal(bodysrv, &oservers)
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "API call for configmenu/getServersInfo/parse: "+err.Error())
-						data.Msgs = append(data.Msgs, template.HTML("Error API call for getServersInfo/parse: "+err.Error()))
-					}
-					if len(oservers.Servers) > 0 {
-						row["domain"] = oservers.Servers[0].Server_hostname
-						row["popname"] = oservers.Servers[0].Server_name
-						row["diddesc"] = odids.Dids[0].Description
-						_, err = db.Exec("UPDATE subacct SET domain = ? WHERE account=?;", oservers.Servers[0].Server_hostname, row["account"].(string))
-						if err != nil {
-							ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/uuid update: "+err.Error())
-							data.Msgs = append(data.Msgs, template.HTML("Error SQL query for uuid update: "+err.Error()))
-						}
-					} else {
-						ml.mylog(syslog.LOG_ERR, "API call for configmenu/getServersInfo/parse: "+err.Error())
-						data.Msgs = append(data.Msgs, template.HTML("Error API call for getServersInfo/parse: "+err.Error()))
-					}
+					ml.mylog(syslog.LOG_ERR, "SQL query for did/pop returned err: "+err.Error())
+					data.Msgs = append(data.Msgs, template.HTML("Error SQL query for did/pop returned err: "+err.Error()))
 				} else {
-					ml.mylog(syslog.LOG_ERR, "API call for configmenu/getDIDsInfo/parse: "+err.Error())
-					data.Msgs = append(data.Msgs, template.HTML("Error API call for getDIDsInfo/parse: "+err.Error()))
+					if len(q) == 1 {
+						row["domain"] = q[0]["hostname"]
+						row["popname"] = q[0]["name"]
+						row["diddesc"] = q[0]["desc"]
+					} else {
+						ml.mylog(syslog.LOG_ERR, "SQL query for did/pop did not return 1 row")
+						data.Msgs = append(data.Msgs, template.HTML("Error SQL query for did/pop did not return 1 row"))
+					}
 				}
 			}
 		}
@@ -1903,7 +1948,7 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 				Name  string
 				Value any
 				Rows  [][]any
-			}{"cfg-pwenc-" + si, Form.Get("cfg-pwenc-" + si), [][]any{{"Encrypted"}, {"Clear"}, {"None"}}})
+			}{"cfg-pwenc-" + si, Form.Get("cfg-pwenc-" + si), [][]any{{"Clear"}, {"Encrypted"}, {"None"}}})
 			if err != nil {
 				ml.mylog(syslog.LOG_ERR, "Getting html configmenu/pwenc: "+err.Error())
 				data.Msgs = append(data.Msgs, template.HTML("Error getting pwenc html: "+err.Error()))
@@ -2027,7 +2072,7 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 		return
 	}
 	// query for the vcards to import
-	vcardrows, err := query2map("SELECT account, callerid, ext, internal_cnam, description, uuid FROM subacct WHERE ext != '' ORDER BY account;")
+	vcardrows, err := query2map("SELECT account, callerid, ext, internal_cnam, description, uuid, domain, extloc, uriext FROM subacct WHERE ext != '' AND domain IS NOT NULL ORDER BY account;")
 	if err != nil {
 		reterr = err
 		return
@@ -2035,7 +2080,7 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 	// add details to rows for vcars
 	for _, row := range vcardrows {
 		// all contacts use same domain
-		row["domain"] = rows[0]["domain"]
+		//row["domain"] = rows[0]["domain"]
 		// vcard fn will be description if avail, next internal cname if avail, if not... just the extension
 		if row["description"] == any("") {
 			if row["internal_cnam"] == any("") {
@@ -2045,6 +2090,10 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 			}
 		} else {
 			row["fn"] = row["description"]
+		}
+		// maybe need to use sip uri exi?
+		if row["extloc"] != rows[0]["extloc"] || row["domain"] != rows[0]["domain"] {
+			row["ext"] = any(url.PathEscape(row["uriext"].(string)))
 		}
 	}
 	// open the vcard file and write the template results
