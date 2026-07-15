@@ -18,6 +18,7 @@ source /scripts/getaddr.sh
 unset SEDOPTS
 SEDOPTS="$SEDOPTS s=__DNSNAME__=$DNSNAME=;"
 SEDOPTS="$SEDOPTS s=__DBPATH__=$DBPATH=;"
+SEDOPTS="$SEDOPTS s=__DBPATHU__=$DBPATHU=;"
 SEDOPTS="$SEDOPTS s=__DBPATHM__=$DBPATHM=;"
 SEDOPTS="$SEDOPTS s=__APIID__=$APIID=;"
 # password may contain an = so escape it

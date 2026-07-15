@@ -8,6 +8,7 @@ LOCUSERCERT=user-cert-loc.pem
 LOCUSERKEY=user-privkey-loc.pem
 LOCUSERCALIST=user-calist-loc.pem
 DBPATH=/data/opensips/opensips.sqlite
+DBPATHU=/data/opensips/opensipsu.sqlite
 DBPATHM=/data/mmsgate/mmsgate.sqlite
 DNSNAME=
 DNSTOKEN=

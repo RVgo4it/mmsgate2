@@ -71,10 +71,10 @@ RUN	if [ ${TARGETPLATFORM} != ${BUILDPLATFORM} ] ; then \
 	CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o ./mmsgate2
 
 # download the LEGO_VER image (if host <1g mem) or compile latest lego
-ARG	LEGO_VER=4.32.0
-RUN	mkdir ~/lego && cd ~/lego && \
-	if [ $MEGS -le 1024 ] ; then \
-	  echo Downloading lego && \
+RUN	if [ $MEGS -le 1024 ] ; then \
+	  mkdir -p ~/lego/dist && cd ~/lego/dist && \
+	  LEGO_VER=$(curl -sLI https://github.com/go-acme/lego/releases/latest  | grep -iP 'location.*tag' | grep -oP '\d+\.\d+\.\d+' | tail -1) && \
+	  echo Downloading lego $LEGO_VER && \
 	  LEGOVER=$LEGO_VER && \
 	  echo LEGOVER: $LEGO_VER && \
 	  curl -L -o lego_${LEGOVER}_checksums.txt https://github.com/go-acme/lego/releases/download/v$LEGOVER/lego_${LEGOVER}_checksums.txt && \
@@ -93,6 +93,7 @@ RUN	mkdir ~/lego && cd ~/lego && \
 	  grep "$SUM" lego_${LEGOVER}_checksums.txt && \
 	  tar -xvzf lego_v${LEGOVER}_linux_$LEGOARCH.tar.gz ; \
 	else \
+	  mkdir ~/lego && cd ~/lego && \
 	  echo Installing lego && \
 	  cd ~ && \
 	  git clone https://github.com/go-acme/lego && \
@@ -172,6 +173,7 @@ RUN	mv /var/spool/cron/crontabs /etc/opensips/ && \
 	{ crontab -l; echo '0 2 * * * . /etc/opensips/globalcfg.sh; find $LOCALMEDIA -mtime +90 ! -name '"'"'contacts.vcard'"'"' ! -name '"'"'*.xml'"'"' ! -name '"'"'*-cfg.png'"'"' -delete'; } | crontab - && \
 	{ crontab -l; echo '30 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM '"'"'DELETE FROM send_msgs WHERE rcvd_ts < CAST(strftime("\%s",date("now","-30 days")) AS INTEGER);'"'"; } | crontab - && \
 	{ crontab -l; echo '45 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHM "VACUUM;"'; } | crontab - && \
+	{ crontab -l; echo '50 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHU "VACUUM;"'; } | crontab - && \
 	{ crontab -l; echo '55 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATH "VACUUM;"'; } | crontab -
 
 # setup log files for opensips and mmsgate
@@ -182,6 +184,7 @@ RUN	echo 'local7.*        /var/log/opensips.log' > /etc/rsyslog.d/40-opensips.co
 
 # setup log rotates.  includes opensips.log, mmsgate.log and nginx files and HUB/USR1 signal to reopen
 RUN	sed --in-place 's_rsyslog-rotate_rsyslog-rotate\n\t\t/bin/kill -HUP $(cat /var/run/rsyslogd.pid)_' /etc/logrotate.d/rsyslog && \
+	sed --in-place 's_/var/log/auth.log_/var/log/auth.log\n/var/log/opensips.log\n/var/log/mmsgate.log_' /etc/logrotate.d/rsyslog && \
 	sed --in-place 's_invoke-rc.d nginx rotate_invoke-rc.d nginx rotate >/dev/null 2>&1\n\t\t/bin/kill -USR1 $(cat /var/run/nginx.pid)_' /etc/logrotate.d/nginx
 
 # need some data folders

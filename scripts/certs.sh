@@ -2,7 +2,8 @@
 
 # this script is will get a certificate from Let's Encrypt via LEGO.  It also sets it up in Nginx.  Optional subcommand for LEGO must be first.  Must run as root.
 
-[[ "$1" =~ ^- ]] || LEGOCMD=$1
+# v5 syntax change
+#[[ "$1" =~ ^- ]] || LEGOCMD=$1
 
 [[ $@ =~ "-d" ]] && DBG=1
 
@@ -81,6 +82,17 @@ EOF
 # and enable it
 ln -fs $NGINXSITES/$DNSNAME $NGINXSITESENABLED/$DNSNAME
 
+# need migrate v4 -> v5?
+if [ -e $CERTS/accounts/*/*/keys ]; then
+  log "Running lego migrate"
+  R=$(echo Y | lego migrate --path $CERTS 2>&1)
+  RET=$?
+  [ $DBG ] && log "lego returned $RET"
+  # log results
+  RL=$(echo "$R"|sed 's/^20.\{18\}//g')
+  log "$RL"
+fi
+
 # create or renew certs
 [ $DBG ] && log "Running lego"
 
@@ -90,14 +102,14 @@ PRECERTTS=$(stat -c %y $CERTS/certificates/$DNSNAME.crt 2>&1)
 
 if [ "$LEGOCMD" != "" ] ; then
   R=$(DYNU_API_KEY=$DNSTOKEN \
-    lego --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT $LEGOCMD 2>&1)
+    lego $LEGOCMD --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
 else
   if [ -e $CERTS/certificates/$DNSNAME.key ] ; then
     R=$(DYNU_API_KEY=$DNSTOKEN \
-      lego --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT renew 2>&1)
+      lego run --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
   else
     R=$(DYNU_API_KEY=$DNSTOKEN \
-      lego --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT run 2>&1)
+      lego run --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
   fi
 fi
 RET=$?

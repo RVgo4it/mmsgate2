@@ -37,10 +37,10 @@ while [ "$1" != "" ]; do
 done
 
 # check for arm32 - opensips bug w/ F_MALLOC
-ARCH=$(uname -m)
-if [[ "$ARCH" == armv7l* ]]; then
-  OPENSIPSOPTS="$OPENSIPSOPTS -a Q_MALLOC"
-fi
+#ARCH=$(uname -m)
+#if [[ "$ARCH" == armv7l* ]]; then
+#  OPENSIPSOPTS="$OPENSIPSOPTS -a Q_MALLOC"
+#fi
 
 # start opensips
 { DONE=NO
@@ -92,7 +92,6 @@ OPENSIPSPID=$!
     STARTEPOCH=$(date +%s)
     if [ $ENABLEMMSGATE == Y ]; then
       log "Starting MMSGate"
-#      sudo -i -u mmsgate /scripts/mmsgate.py --default-values "apiid=$APIID;apipw=$APIPW;webdns=$DNSNAME;dbfile=$DBPATHM" $MMSGATEOPTS &
       sudo -i -u mmsgate /scripts/mmsgate2.sh &
       PID=$!
       [ $DBG ] && log "Started MMSGate as $PID"

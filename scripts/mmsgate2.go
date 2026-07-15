@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.3.0 7/15/2026 lego downloads always latest, split off usrloc db, timeouts, syslog rotates fix, ubuntu 26.04, lego v5, opensips-cli local cert bug workaround
 // v1.2.1 3/23/2026 Fix for no internal cname and MMS XML until field
 // v1.2.0 3/13/2026 Added support for Internal Extension (Multi-Tenant) Locations and multiple POP servers
 // v1.1.15 3/12/2026 Bug fix in opensips.cfg for missing some events for msilo_dump
@@ -1094,6 +1095,7 @@ func send_msgs(c chan bool) {
 				exitcode := cmd.ProcessState.ExitCode()
 				clirslt = strconv.Itoa(exitcode)
 				n := bytes.IndexByte(out[:], 0)
+				if ( n == -1) {n = 0}
 				if exitcode != 200 && exitcode != 202 {
 					ml.mylog(syslog.LOG_ERR, "sipexec: "+strings.Join(cmd.Args, " ")+"\nExitCode = "+clirslt+"\n "+string(out[:n]))
 				} else {

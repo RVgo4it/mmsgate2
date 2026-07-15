@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG	UBUNTUVER="25.10"
+ARG	UBUNTUVER="26.04"
 # This is for building opensips
 FROM	ubuntu:$UBUNTUVER AS build
 
@@ -27,7 +27,8 @@ RUN	apt -y update && \
 	libcurl4-openssl-dev \
 	libglib2.0-dev \
 	libhiredis-dev \
-	libpcre3-dev \
+#	libpcre3-dev \
+	libpcre2-dev \
 	libssl-dev \
 	libxmlrpc-core-c3-dev \
 	markdown \
@@ -81,10 +82,11 @@ ARG	BRANCH="3.6"
 RUN	git clone https://github.com/OpenSIPS/opensips.git --recursive -b ${BRANCH} ~/opensips
 
 # modules
-ARG	MODS="tls_wolfssl db_sqlite tls_openssl tls_mgm proto_tls proto_udp sqlops presence xcap presence_xml json rest_client xml"
+#ARG	MODS="tls_wolfssl db_sqlite tls_openssl tls_mgm proto_tls proto_udp sqlops presence xcap presence_xml json rest_client xml"
+ARG	MODS="db_sqlite tls_openssl tls_mgm proto_tls proto_udp sqlops presence xcap presence_xml json rest_client xml"
 RUN	echo Make modules: ${MODS}
 # force make's Makefile to use nproc, not getconf for CPU count.  this mostly for wolfssl
-RUN	rm /bin/getconf
+#RUN	rm /bin/getconf
 # use bash for all shells w/ ~/.bashstart
 SHELL	["bash", "-c"]
 RUN	ln -s bash /bin/sh.bash && \
@@ -108,7 +110,7 @@ RUN	echo $CPU Limit: $OMP_THREAD_LIMIT && \
 # build opensips
 RUN	cd ~/opensips && \
 	make clean && \
-	ln -s /root/opensips/modules/tls_wolfssl/lib/wolfssl /root/opensips/modules/tls_wolfssl/lib/include && \
+#	ln -s /root/opensips/modules/tls_wolfssl/lib/wolfssl /root/opensips/modules/tls_wolfssl/lib/include && \
 	mkdir -p /root/inst/lib && \
 	mkdir /root/inst/lib64 && \
 	make prefix=/ include_modules="${MODS}" all && \
@@ -137,10 +139,6 @@ ENV	PATH="/opt/venv/bin:$PATH"
 
 RUN	git clone https://github.com/OpenSIPS/opensips-cli.git /usr/src/opensips-cli
 
-COPY	mmsgate2/tls-patch/hashes.txt mmsgate2/tls-patch/tls.patch ./
-
-RUN	if md5sum --check hashes.txt; then patch /usr/src/opensips-cli/opensipscli/modules/tls.py <tls.patch; else echo Skipping patch; fi
-
 RUN	cd /usr/src/opensips-cli && \
 	pip3 install . && \
 	pip3 install --upgrade urllib3 && \
@@ -152,6 +150,9 @@ RUN	cd /usr/src/opensips-cli && \
 FROM	ubuntu:$UBUNTUVER
 
 LABEL	org.opencontainers.image.authors="https://github.com/RVgo4it"
+
+# vul cleanup for ubuntu 26.04 
+RUN	rm -f /usr/bin/pebble && rm -rf /var/lib/pebble
 
 # Update and install items needed for opensips
 RUN	apt -y update && \
