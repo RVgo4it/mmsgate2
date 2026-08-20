@@ -140,7 +140,7 @@ RUN	apt -y update && \
 # Configure user mmsgate, with a little sudo
 RUN	useradd -ms /bin/bash mmsgate && \
 	echo 'mmsgate:notnot' | chpasswd && \
-        echo 'mmsgate ALL=(ALL) NOPASSWD:SETENV:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh, /scripts/fwtestviator.sh, /scripts/fwtestviaproxy.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh' >> /etc/sudoers
+	echo 'mmsgate ALL=(ALL) NOPASSWD:SETENV:/etc/opensips/globalcfg.sh, /scripts/stopopensips.sh, /scripts/fwtestviator.sh, /scripts/fwtestviaproxy.sh, /scripts/certs.sh, /scripts/restart.sh, /scripts/displaylog.sh' >> /etc/sudoers
 
 # Configure user opensips, no sudo
 RUN	useradd -ms /bin/bash opensips && \

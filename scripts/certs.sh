@@ -3,7 +3,8 @@
 # this script is will get a certificate from Let's Encrypt via LEGO.  It also sets it up in Nginx.  Optional subcommand for LEGO must be first.  Must run as root.
 
 # v5 syntax change
-#[[ "$1" =~ ^- ]] || LEGOCMD=$1
+[[ "$1" =~ ^- ]] || LEGOCMD=$1
+[[ "$LEGOCMD" == "renew" ]] && LEGOCMD=run 
 
 [[ $@ =~ "-d" ]] && DBG=1
 
