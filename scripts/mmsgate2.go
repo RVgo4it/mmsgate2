@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.3.2 9/3/2026 fixed CVE-2026-78662 and CVE-2026-56855.  reduced dup messages.
 // v1.3.1 8/20/2026 upgrade opensips v3.6.8, fixed GHSA-6v7p-g79w-8964, CVE-2025-47273, CVE-2026-59890.
 // v1.3.0 7/15/2026 lego downloads always latest, split off usrloc db, timeouts, syslog rotates fix, ubuntu 26.04, lego v5, opensips-cli local cert bug workaround
 // v1.2.1 3/23/2026 Fix for no internal cname and MMS XML until field

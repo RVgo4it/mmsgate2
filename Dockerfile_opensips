@@ -149,8 +149,8 @@ RUN	cd /usr/src/opensips-cli && \
 	pip3 install --upgrade-strategy eager setuptools && \
 	pip3 install --upgrade-strategy eager --upgrade pip && \
 	cd ~ && \
-	rm /opt/venv/lib/python3.14/site-packages/pip/_vendor/bom.cdx.json && \
-	rm -rf /usr/src/opensips-cli
+	rm -rf /usr/src/opensips-cli && \
+	rm /opt/venv/lib/python3.14/site-packages/pip/_vendor/bom.cdx.json || echo not found
 
 # This is the final image
 FROM	ubuntu:$UBUNTUVER
