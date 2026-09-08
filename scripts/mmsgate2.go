@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.4.0 9/8/2026 Added number blocking.
 // v1.3.2 9/3/2026 fixed CVE-2026-78662 and CVE-2026-56855.  reduced dup messages.
 // v1.3.1 8/20/2026 upgrade opensips v3.6.8, fixed GHSA-6v7p-g79w-8964, CVE-2025-47273, CVE-2026-59890.
 // v1.3.0 7/15/2026 lego downloads always latest, split off usrloc db, timeouts, syslog rotates fix, ubuntu 26.04, lego v5, opensips-cli local cert bug workaround
@@ -300,6 +301,13 @@ func init_msgdb() {
 		ml.mylog(syslog.LOG_EMERG, "Error creating DB index: "+err.Error())
 		// can't go on
 		panic(errors.New("Error creating DB index: " + err.Error()))
+	}
+	// also the blocking numbers
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS blocked (number TEXT PRIMARY KEY);")
+	if err != nil {
+		ml.mylog(syslog.LOG_EMERG, "Error creating DB table: "+err.Error())
+		// can't go on
+		panic(errors.New("Error creating DB table: " + err.Error()))
 	}
 }
 
@@ -794,68 +802,85 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		// from number blocked?
+		var count int64
+		err = db.QueryRow("SELECT COUNT(*) FROM blocked WHERE ? LIKE number;", webhook.Data.Payload.From.Phone_number).Scan(&count)
+		if err != nil {
+			ml.mylog(syslog.LOG_ERR, "Error query count of number blocks: "+err.Error())
+			return
+		}
+
 		// keep track if no sub accts to send to
 		noinsert := true
-		// loop for each "to" DID found in json
-		for _, to := range webhook.Data.Payload.To {
-			// got one to send
-			ml.mylog(syslog.LOG_DEBUG, "Processing To: "+to.Phone_number)
-			// get all sub accts for this DID
-			toacctarr, err := get_tosubaccts(to.Phone_number)
-			if err != nil {
-				ml.mylog(syslog.LOG_ERR, "Error get_tosubaccts: "+err.Error())
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			// loop for each sub acct from array built from db
-			for _, thisacct := range toacctarr {
-				ml.mylog(syslog.LOG_DEBUG, "Sending to sub acct: "+thisacct.acct)
-				// check text part first (common for SMS)
-				if webhook.Data.Payload.Text != "" {
-					ml.mylog(syslog.LOG_DEBUG, "Sending text message")
-					// queue it
-					err = insert_msg(webhook.Data.Payload.From.Phone_number, thisacct.domain, thisacct.acct, thisacct.domain,
-						webhook.Data.Payload.Text, to.Phone_number, "SMS", strconv.FormatUint(webhook.Data.Id, 10), "")
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
-						w.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-					// don't need a dummy record
-					noinsert = false
+		noinsertwhy := "none"
+
+		// blocked from number?
+		if count != 0 {
+			noinsertwhy = "blocked"
+		} else {
+			// loop for each "to" DID found in json
+			for _, to := range webhook.Data.Payload.To {
+				// got one to send
+				ml.mylog(syslog.LOG_DEBUG, "Processing To: "+to.Phone_number)
+				// get all sub accts for this DID
+				toacctarr, err := get_tosubaccts(to.Phone_number)
+				if err != nil {
+					ml.mylog(syslog.LOG_ERR, "Error get_tosubaccts: "+err.Error())
+					w.WriteHeader(http.StatusInternalServerError)
+					return
 				}
-				// check each media url (common for MMS)
-				for _, murl := range webhook.Data.Payload.Media {
-					ml.mylog(syslog.LOG_DEBUG, "Found medua url: "+murl.Url)
-					// need new MMS XML from URL
-					xml, err := url2xml(murl.Url)
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "Error converting URL to XML: ("+murl.Url+"): "+err.Error())
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
+				// loop for each sub acct from array built from db
+				for _, thisacct := range toacctarr {
+					ml.mylog(syslog.LOG_DEBUG, "Sending to sub acct: "+thisacct.acct)
+					// check text part first (common for SMS)
+					if webhook.Data.Payload.Text != "" {
+						ml.mylog(syslog.LOG_DEBUG, "Sending text message")
+						// queue it
+						err = insert_msg(webhook.Data.Payload.From.Phone_number, thisacct.domain, thisacct.acct, thisacct.domain,
+							webhook.Data.Payload.Text, to.Phone_number, "SMS", strconv.FormatUint(webhook.Data.Id, 10), "")
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
+							w.WriteHeader(http.StatusInternalServerError)
+							return
+						}
+						// don't need a dummy record
+						noinsert = false
 					}
-					ml.mylog(syslog.LOG_DEBUG, "XML Message: "+xml)
-					// queue it
-					err = insert_msg(webhook.Data.Payload.From.Phone_number, thisacct.domain, thisacct.acct, thisacct.domain,
-						xml, to.Phone_number, webhook.Data.Payload.Type, strconv.FormatUint(webhook.Data.Id, 10), "")
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "Error from insert_msg: "+err.Error())
-						w.WriteHeader(http.StatusInternalServerError)
-						return
+					// check each media url (common for MMS)
+					for _, murl := range webhook.Data.Payload.Media {
+						ml.mylog(syslog.LOG_DEBUG, "Found medua url: "+murl.Url)
+						// need new MMS XML from URL
+						xml, err := url2xml(murl.Url)
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "Error converting URL to XML: ("+murl.Url+"): "+err.Error())
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+						ml.mylog(syslog.LOG_DEBUG, "XML Message: "+xml)
+						// queue it
+						err = insert_msg(webhook.Data.Payload.From.Phone_number, thisacct.domain, thisacct.acct, thisacct.domain,
+							xml, to.Phone_number, webhook.Data.Payload.Type, strconv.FormatUint(webhook.Data.Id, 10), "")
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "Error from insert_msg: "+err.Error())
+							w.WriteHeader(http.StatusInternalServerError)
+							return
+						}
+						// don't need a dummy record
+						noinsert = false
 					}
-					// don't need a dummy record
-					noinsert = false
 				}
 			}
 		}
 		// Just to know we receive this message ID for when we reconcile
 		if noinsert {
-			insert_msg(webhook.Data.Payload.From.Phone_number, "dummy", "any", "dummy",
+			insert_msg(webhook.Data.Payload.From.Phone_number, "dummy", noinsertwhy, "dummy",
 				webhook.Data.Payload.Text, webhook.Data.Payload.To[0].Phone_number, "SMS", strconv.FormatUint(webhook.Data.Id, 10), "202")
 			ml.mylog(syslog.LOG_DEBUG, "Dummy msg record inserted: MSG ID="+strconv.FormatUint(webhook.Data.Id, 10))
+		} else {
+			// bump the send queue
+			c <- true
 		}
-		// bump the send queue
-		c <- true
 		// all done
 		w.WriteHeader(http.StatusOK)
 	default:
@@ -1097,7 +1122,9 @@ func send_msgs(c chan bool) {
 				exitcode := cmd.ProcessState.ExitCode()
 				clirslt = strconv.Itoa(exitcode)
 				n := bytes.IndexByte(out[:], 0)
-				if ( n == -1) {n = 0}
+				if n == -1 {
+					n = 0
+				}
 				if exitcode != 200 && exitcode != 202 {
 					ml.mylog(syslog.LOG_ERR, "sipexec: "+strings.Join(cmd.Args, " ")+"\nExitCode = "+clirslt+"\n "+string(out[:n]))
 				} else {
@@ -1191,41 +1218,54 @@ func reconcile() error {
 		if count == 0 {
 			// keep track if we sent it
 			noinsert := true
-			toacctarr, err := get_tosubaccts(sms.Did)
+			noinsertwhy := "none"
+			// from number blocked?
+			var blkcount int64
+			err = db.QueryRow("SELECT COUNT(*) FROM blocked WHERE ? LIKE number;", sms.Contact).Scan(&blkcount)
 			if err != nil {
-				ml.mylog(syslog.LOG_ERR, "Error get_tosubaccts: "+err.Error())
+				ml.mylog(syslog.LOG_ERR, "Error query count of number blocks: "+err.Error())
 				return err
 			}
-			for _, thisacct := range toacctarr {
-				if sms.Message != "" {
-					ml.mylog(syslog.LOG_DEBUG, "Sending SMS text message: "+sms.Id)
-					err = insert_msg(sms.Contact, thisacct.domain, thisacct.acct, thisacct.domain,
-						sms.Message, sms.Did, "SMS", sms.Id, "")
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
-						return err
-					}
-					noinsert = false
+			// from number blocked?
+			if blkcount != 0 {
+				noinsertwhy = "blocked"
+			} else {
+				toacctarr, err := get_tosubaccts(sms.Did)
+				if err != nil {
+					ml.mylog(syslog.LOG_ERR, "Error get_tosubaccts: "+err.Error())
+					return err
 				}
-				for _, url := range sms.Media {
-					xml, err := url2xml(url)
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "Func url2xml returned: "+err.Error())
-						return err
+				for _, thisacct := range toacctarr {
+					if sms.Message != "" {
+						ml.mylog(syslog.LOG_DEBUG, "Sending SMS text message: "+sms.Id)
+						err = insert_msg(sms.Contact, thisacct.domain, thisacct.acct, thisacct.domain,
+							sms.Message, sms.Did, "SMS", sms.Id, "")
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
+							return err
+						}
+						noinsert = false
 					}
-					ml.mylog(syslog.LOG_DEBUG, "Sending MMS message: "+sms.Id)
-					err = insert_msg(sms.Contact, thisacct.domain, thisacct.acct, thisacct.domain,
-						xml, sms.Did, "MMS", sms.Id, "")
-					if err != nil {
-						ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
-						return err
+					for _, url := range sms.Media {
+						xml, err := url2xml(url)
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "Func url2xml returned: "+err.Error())
+							return err
+						}
+						ml.mylog(syslog.LOG_DEBUG, "Sending MMS message: "+sms.Id)
+						err = insert_msg(sms.Contact, thisacct.domain, thisacct.acct, thisacct.domain,
+							xml, sms.Did, "MMS", sms.Id, "")
+						if err != nil {
+							ml.mylog(syslog.LOG_ERR, "insert_msg returned error: "+err.Error())
+							return err
+						}
+						noinsert = false
 					}
-					noinsert = false
 				}
 			}
 			// Just to know we already received this message ID for when we reconcile again
 			if noinsert {
-				insert_msg(sms.Contact, "dummy", "any", "dummy",
+				insert_msg(sms.Contact, "dummy", noinsertwhy, "dummy",
 					sms.Message, sms.Did, "SMS", sms.Id, "202")
 				ml.mylog(syslog.LOG_DEBUG, "Dummy msg record inserted: MSG ID="+sms.Id)
 			}
@@ -1345,6 +1385,7 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 		for _, mm := range []struct{ name, menu string }{
 			{"Linphone", "linmenu"},
 			{"Voip.ms", "voipmsmenu"},
+			{"Blocking", "blockingmenu"},
 			{"Wizard", "wizmenu-1"},
 			{"Advanced", "advmenu"}} {
 			for _, fv := range r.Form {
@@ -1427,6 +1468,11 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Form.Get("button2") == "Cancel" {
 			r.Form["nextpage"] = []string{"mainmenu"}
 		}
+	case "blockingmenu":
+		// cancel?  back to main menu
+		if r.Form.Get("button2") == "Cancel" {
+			r.Form["nextpage"] = []string{"mainmenu"}
+		}
 	default:
 		r.Form["nextpage"] = []string{"mainmenu"}
 	}
@@ -1445,8 +1491,14 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 		data.CustomItems = []any{m{"Wizard", "Step by step configuration of MMSGate"},
 			m{"Linphone", "Manage Linphone accounts for push notifications - Add/Edit/Delete"},
 			m{"Voip.ms", "Configure Voip.ms Accounts for MMSGate and configure clients"},
+			m{"Blocking", "Block numbers from incoming SMS/MMS messages"},
 			m{"Advanced", "Advanced menu for logs, restarts, etc."}}
 		tmplname = "form-table-menu"
+	case "blockingmenu":
+		tmplname, err = blockingmenu(r.Form, &data)
+		if err != nil {
+			ml.mylog(syslog.LOG_ERR, "Blocking menu returned error: "+err.Error())
+		}
 	case "advmenu":
 		// map of func to call for sub adv menu
 		type menu func(url.Values, *dat) (string, error)
@@ -1649,6 +1701,126 @@ func template2html(tmplname string, data any) (template.HTML, error) {
 		return template.HTML(""), err
 	}
 	return template.HTML(buf.String()), nil
+}
+
+/*
+ * generate the blocking form and perform updates
+ */
+func blockingmenu(Form url.Values, data *dat) (retfrorm string, reterr error) {
+	retfrorm = "form-table-2d"
+	// if panic,print/log details
+	defer func() {
+		if err := recover(); err != nil {
+			strerr := HandleErrorWithLines(err.(error))
+			reterr = errors.New(strerr)
+		}
+	}()
+	// some initial form values
+	data.CustomItems = []any{}
+	data.Btn1 = false
+	data.Btn2 = true
+	data.Thispage = "blockingmenu"
+	data.Nextpage = "blockingmenu"
+	data.Title2 = " - Blocking"
+	data.Msgs = append(data.Msgs, template.HTML("Use '%' for wild match.  Example: '202%' matches all area code 202."))
+
+	// check each row for click block number
+	for i := 0; ; i += 1 {
+		si := strconv.Itoa(i)
+		// no more rows?
+		number := Form.Get("number-" + si)
+		if number == "" {
+			break
+		}
+		// clicked it?
+		if Form.Get("block-"+si) == "Block" || Form.Get("block-"+si) == "Add" {
+			ml.mylog(syslog.LOG_DEBUG, "Clicked 'Block/Add' for number: "+number)
+			// block number
+			_, err := db.Exec("INSERT INTO blocked (number) VALUES(?);", number)
+			if err != nil {
+				dualMsg(&data.Msgs, syslog.LOG_ERR, "Insert into blocked DB table failed: "+err.Error())
+			} else {
+				data.Msgs = append(data.Msgs, template.HTML("Number blocked: "+number))
+			}
+		}
+		if Form.Get("block-"+si) == "UnBlock" {
+			ml.mylog(syslog.LOG_DEBUG, "Clicked 'UnBlock' for number: "+number)
+			// remove blocked number
+			_, err := db.Exec("DELETE FROM blocked WHERE number = ?;", number)
+			if err != nil {
+				dualMsg(&data.Msgs, syslog.LOG_ERR, "Delete from blocked DB table failed: "+err.Error())
+			} else {
+				data.Msgs = append(data.Msgs, template.HTML("Number unblocked: "+number))
+			}
+		}
+	}
+
+	// get received messages
+	query := "SELECT STRFTIME('%Y-%m-%d %H:%M',DATETIME(rcvd_ts, 'unixepoch', 'localtime')) as rcvd_ts, " +
+		"REPLACE(message,'<?xml version=\"1.0\" encoding=\"UTF-8\"?>'||CHAR(10)||'<file xmlns=\"urn:gsma:params:xml:ns:rcs:rcs:fthttp\" xmlns:am=\"urn:gsma:params:xml:ns:rcs:rcs:rram\">'||CHAR(10),'') as message, " +
+		"fromid, did, " +
+		"(SELECT COUNT(*) FROM blocked WHERE send_msgs.fromid LIKE number) AS blocked FROM send_msgs GROUP BY msgid ORDER BY rcvd_ts DESC;"
+	rows, err := query2map(query)
+	if err != nil {
+		ml.mylog(syslog.LOG_ERR, "Getting message log for blockingmenu: "+err.Error())
+		data.Msgs = append(data.Msgs, template.HTML("Error getting accts: "+err.Error()))
+	}
+	// header row
+	data.CustomItems = append(data.CustomItems, struct {
+		Header bool
+		Row    []any
+	}{true, []any{"Received", "", "From Number", "Action", "Blocked?", "To DID", "Message"}})
+	// loop each message received
+	i := 0
+	for _, row := range rows {
+		submitprop := ""
+		blocked := "No"
+		if row["blocked"] != any(int64(0)) {
+			submitprop = "disabled"
+			blocked = "Yes"
+		}
+		// tag to get the number when submitted
+		numberhiddentag := template.HTML(fmt.Sprintf("<input id='number-%d' name='number-%d' type='hidden' value='%s'>", i, i, row["fromid"]))
+		// submit tag to apply new values
+		applytag := template.HTML(fmt.Sprintf("<input id='block-%d' name='block-%d' type='submit' %s value='Block'>", i, i, submitprop))
+		// append the row
+		data.CustomItems = append(data.CustomItems, struct {
+			Header bool
+			Row    []any
+		}{false, []any{row["rcvd_ts"], numberhiddentag, row["fromid"], applytag, blocked, row["did"], row["message"]}})
+		i++
+	}
+
+	// get blocked numbers so they could be unblocked
+	rows, err = query2map("SELECT number FROM blocked;")
+	if err != nil {
+		ml.mylog(syslog.LOG_ERR, "Getting message log for blockingmenu: "+err.Error())
+		data.Msgs = append(data.Msgs, template.HTML("Error getting accts: "+err.Error()))
+	}
+	// loop each blocked number
+	for _, row := range rows {
+		// tag to get the number when submitted
+		numberhiddentag := template.HTML(fmt.Sprintf("<input id='number-%d' name='number-%d' type='hidden' value='%s'>", i, i, row["number"]))
+		// submit tag to apply new values
+		applytag := template.HTML(fmt.Sprintf("<input id='block-%d' name='block-%d' type='submit' value='UnBlock'>", i, i))
+		// append the row
+		data.CustomItems = append(data.CustomItems, struct {
+			Header bool
+			Row    []any
+		}{false, []any{"", numberhiddentag, row["number"], applytag, "", "", ""}})
+		i++
+	}
+
+	// input/submit tag to apply new values
+	numbertag := template.HTML(fmt.Sprintf("<input id='number-%d' name='number-%d'>", i, i))
+	addtag := template.HTML(fmt.Sprintf("<input id='block-%d' name='block-%d' type='submit' value='Add'>", i, i))
+	data.CustomItems = append(data.CustomItems, struct {
+		Header bool
+		Row    []any
+	}{false, []any{"", "", numbertag, addtag, "", "", ""}})
+
+	// return form name to process
+	return
 }
 
 /*
@@ -2917,6 +3089,14 @@ func sqldump(Form url.Values, data *dat) (retfrorm string, reterr error) {
 		data.Msgs = append(data.Msgs, template.HTML("SQL dump of table \"linphone\" returned error: "+err.Error()))
 	} else {
 		data.Msgs = append(data.Msgs, template.HTML("Database dump of table \"linphone\":<br><table>"+string(cmdout)+"</table>"))
+	}
+	// and blocking table
+	cmdout, err = exec.Command("bash", "-c", ". /etc/opensips/globalcfg.sh; sqlite3 -html -header $DBPATHM \""+
+		"SELECT rowid,* FROM blocked order by rowid;\"").Output()
+	if err != nil {
+		data.Msgs = append(data.Msgs, template.HTML("SQL dump of table \"blocked\" returned error: "+err.Error()))
+	} else {
+		data.Msgs = append(data.Msgs, template.HTML("Database dump of table \"blocked\":<br><table>"+string(cmdout)+"</table>"))
 	}
 	// finally opensips silo table.  it's a msg queue
 	cmdout, err = exec.Command("bash", "-c", ". /etc/opensips/globalcfg.sh; sqlite3 -html -header $DBPATH \""+

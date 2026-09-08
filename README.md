@@ -18,6 +18,7 @@
     - [Linphone Accounts](#linphone-accounts)
     - [VoIP.ms Sub Accounts](#voipms-sub-accounts)
     - [Client Config](#client-config)
+    - [Blocking](#blocking)
   - [FAQ](#faq)
 
 ## Introduction
@@ -406,6 +407,18 @@ Some clients cannot scan a QR code.  For them, you will need to copy-and-paste t
 If Push Notification was NOT configured, be sure to adjust your mobile device's power management settings so as to keep the app alive so that you can receive calls and messages at any time.
 
 Normally, the first account is selected as the default account.  When you pull-down the menu from the upper-left, you will see it highlighted.  If it is not highlighted, tap on it to select it.  Don't tap on status.  That will only re-register without selecting a default.  
+
+### Blocking
+
+From the main menu, you can select "Blocking".  It will allows you to set filters for incoming SMS/MMS messages based on the number they are coming from.  
+
+
+
+![](images/blocking.png)
+
+It will display a list of recent messages received and allow they numbers to be blocked.  It also lists the current blocked list, allowing number to be un-blocked. You can also add a custom block to the list.  A custom block with a '%' symbol can match multiple numbers.  
+
+The "Blocked?" column will display yes/no depending on future blocking for current rules.  To see past blocking, go to Advanced->Display_SQLite_Data to view the message status of previous messages.
 
 ## FAQ
 
