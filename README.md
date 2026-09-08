@@ -412,11 +412,9 @@ Normally, the first account is selected as the default account.  When you pull-d
 
 From the main menu, you can select "Blocking".  It will allows you to set filters for incoming SMS/MMS messages based on the number they are coming from.  
 
-
-
 ![](images/blocking.png)
 
-It will display a list of recent messages received and allow they numbers to be blocked.  It also lists the current blocked list, allowing number to be un-blocked. You can also add a custom block to the list.  A custom block with a '%' symbol can match multiple numbers.  
+It will display a list of recent messages received and allow their numbers to be blocked.  It also lists the current blocked list, allowing number to be un-blocked. You can also add a custom block to the list.  A custom block with a '%' symbol can match multiple numbers.  
 
 The "Blocked?" column will display yes/no depending on future blocking for current rules.  To see past blocking, go to Advanced->Display_SQLite_Data to view the message status of previous messages.
 
