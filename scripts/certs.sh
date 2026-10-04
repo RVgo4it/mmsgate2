@@ -2,16 +2,6 @@
 
 # this script is will get a certificate from Let's Encrypt via LEGO.  It also sets it up in Nginx.  Optional subcommand for LEGO must be first.  Must run as root.
 
-# v5 syntax change
-[[ "$1" =~ ^- ]] || LEGOCMD=$1
-[[ "$LEGOCMD" == "renew" ]] && LEGOCMD=run 
-
-[[ $@ =~ "-d" ]] && DBG=1
-
-[[ $@ =~ "-o" ]] && NOOPENSIPS=1
-
-[[ $@ =~ "-s" ]] && LEGOOPT=--server=https://acme-staging-v02.api.letsencrypt.org/directory
-
 SCR=$(basename $0)
 log() {
   echo $(date "+%m-%d %H:%M:%S") [$$] $SCR - "$1"
@@ -21,31 +11,33 @@ log() {
 source /etc/opensips/globalcfg.sh
 [ "$DEBUG" == "Y" ] && DBG=1
 
+# -s option points to staging server
+unset LEGOOPT
+[[ $@ =~ "-s" ]] && LEGOOPT=--server=https://acme-staging-v02.api.letsencrypt.org/directory
+
+[ $DBG ] && LEGOOPT="--log.level debug $LEGOOPT"
 [ $DBG ] && log "Certs starting!"
-[ $DBG ] && log "Args: $*"
-[ $CERTBOTCMD ] && [ $DBG ] && log "Will use lego $CERTBOTCMD"
+[ $DBG ] && log "Args: $@"
 
 # Some global setting are required
 [ "$DNSNAME" == "" ] && { [ $DBG ] && log "Missing global DNSNAME"; exit 1; }
 [ "$EMAIL" == "" ] && { [ $DBG ] && log "Missing required email address"; exit 1; }
-[ "$DNSTOKEN" == "" ] && { [ $DBG ] && log "Missing required DNSTOKEN key"; exit 1; }
 
 [ $DBG ] && log "DNS name is $DNSNAME"
 
+# some fixed paths
 NGINXSITES=/etc/opensips/nginx/sites-available
 NGINXSITESENABLED=/etc/opensips/nginx/sites-enabled
 CERTS=/etc/opensips/tls
 
 # clean up any extra sites...
 for SITE in $(ls $NGINXSITES); do
-#  if [ $SITE != $DNSNAME ] && [ $SITE != testing ]; then
   if [ $SITE != $DNSNAME ] && [ $SITE != testing ] && [ $SITE != admin ] && [ $SITE != default ]; then
     [ $DBG ] && log "Removing $NGINXSITES/$SITE"
     rm -r $NGINXSITES/$SITE
   fi
 done
 for SITE in $(ls $NGINXSITESENABLED); do
-#  if [ $SITE != $DNSNAME ] && [ $SITE != testing ]; then
   if [ $SITE != $DNSNAME ] && [ $SITE != admin ]; then
     [ $DBG ] && log "Removing $NGINXSITESENABLED/$SITE"
     rm -r $NGINXSITESENABLED/$SITE
@@ -90,44 +82,36 @@ if [ -e $CERTS/accounts/*/*/keys ]; then
   RET=$?
   [ $DBG ] && log "lego returned $RET"
   # log results
-  RL=$(echo "$R"|sed 's/^20.\{18\}//g')
+  RL=$(echo;echo "$R")
   log "$RL"
 fi
 
 # create or renew certs
 [ $DBG ] && log "Running lego"
 
-# no --run-hook=/scripts/certdeploy.sh option in this ver, so we'll simulate it...
-PRECERTTS=$(stat -c %y $CERTS/certificates/$DNSNAME.crt 2>&1)
-[ $DBG ] && log "Pre lego: $PRECERTTS"
+# get lego env
+lget() { local NAME; local VAL; unset IFS; while read -r -d = NAME; read -r VAL; do eval export $NAME="$VAL"; done </etc/opensips/custdns.txt; }
+lget
 
-if [ "$LEGOCMD" != "" ] ; then
-  R=$(DYNU_API_KEY=$DNSTOKEN \
-    lego $LEGOCMD --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
+# domian to use for cert and challenge
+if [[ "$DNSNAME" == "$DNSCERTDOM" || "$DNSCERTDOM" == "" ]]; then
+  LEGOOPT="-d $DNSNAME $LEGOOPT"
 else
-  if [ -e $CERTS/certificates/$DNSNAME.key ] ; then
-    R=$(DYNU_API_KEY=$DNSTOKEN \
-      lego run --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
-  else
-    R=$(DYNU_API_KEY=$DNSTOKEN \
-      lego run --accept-tos --email $EMAIL --path $CERTS --pem --dns dynu -d $DNSNAME $LEGOOPT 2>&1)
-  fi
+  LEGOOPT="-d *.$DNSCERTDOM -d $DNSCERTDOM $LEGOOPT"
 fi
+
+# need to call /scripts/certdeploy.sh after cert deploy
+LEGOOPT="--deploy-hook /scripts/certdeploy.sh $LEGOOPT"
+
+# more options
+LEGOOPT="--accept-tos --email $EMAIL --path $CERTS --pem --dns $DNSTYPE $LEGOOPT"
+
+[ $DBG ] && log "LEGOOPT=$LEGOOPT"
+R=$(lego run $LEGOOPT 2>&1)
 RET=$?
 [ $DBG ] && log "lego returned $RET"
 # log results
-RL=$(echo "$R"|sed 's/^20.\{18\}//g')
+RL=$(echo;echo "$R")
 log "$RL"
-
-# more --run-hook
-POSTCERTTS=$(stat -c %y $CERTS/certificates/$DNSNAME.crt 2>&1)
-[ $DBG ] && log "Post lego: $POSTCERTTS"
-if [ "$PRECERTTS" != "$POSTCERTTS" ]; then
-  [ $NOOPENSIPS ] && DEPLOYOPT=-o
-  LEGO_CERT_DOMAIN=$DNSNAME \
-  LEGO_CERT_KEY_PATH=$CERTS/certificates/$DNSNAME.key \
-  LEGO_CERT_PATH=$CERTS/certificates/$DNSNAME.crt \
-    /scripts/certdeploy.sh $DEPLOYOPT
-fi
 
 exit $RET

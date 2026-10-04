@@ -14,6 +14,7 @@ log() {
   echo "$1" | logger -p local6.1 -t $SCR
 }
 
+[ "$DNSTYPE" != "dynu" ] && { [ $DBG ] && log "Global value for DNSTYPE not dynu"; exit 1; }
 [ "$DNSNAME" == "" ] && { log "Missing global value for DNSNAME"; exit 1; }
 [ "$DNSTOKEN" == "" ] && { log "missing global value for DNSTOKEN"; exit 1; }
 

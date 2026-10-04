@@ -410,7 +410,7 @@ Normally, the first account is selected as the default account.  When you pull-d
 
 ### Blocking
 
-From the main menu, you can select "Blocking".  It will allows you to set filters for incoming SMS/MMS messages based on the number they are coming from.  
+From the main menu, you can select "Blocking".  It will allow you to set filters for incoming SMS/MMS messages based on the number they are coming from.  
 
 ![](images/blocking.png)
 

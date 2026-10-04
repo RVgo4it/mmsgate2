@@ -10,7 +10,18 @@ log() {
 source /etc/opensips/globalcfg.sh
 [ "$DEBUG" == "Y" ] && DBG=1
 
-# update?
+# updates?
+if [ "$DNSTYPE" == "" ]; then
+  DNSTYPE=dynu
+  echo DNSTYPE=dynu | sudo tee -a /etc/opensips/globalcfg.txt
+fi
+if [ ! -e /etc/opensips/custdns.txt ]; then
+  echo 'DYNU_API_KEY=$DNSTOKEN' | sudo tee /etc/opensips/custdns.txt
+  sudo chown mmsgate:mmsgate /etc/opensips/custdns.txt
+fi
+if ! grep DNSCERTDOM /etc/opensips/globalcfg.txt > /dev/null; then
+  echo 'DNSCERTDOM=' | sudo tee -a /etc/opensips/globalcfg.txt
+fi
 if [ "$DBPATHU" == "" ]; then
   DBPATHU=/data/opensips/opensipsu.sqlite
   { sudo crontab -l; echo '50 2 * * 0 . /etc/opensips/globalcfg.sh; sqlite3 $DBPATHU "VACUUM;"'; } | sudo crontab -

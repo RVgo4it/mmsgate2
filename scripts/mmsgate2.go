@@ -11,7 +11,8 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
-// v1.4.0 9/8/2026 Added number blocking.
+// v1.5.0 10/4/2026 Added custom DNS config.
+// v1.4.0 9/10/2026 Added number blocking.
 // v1.3.2 9/3/2026 fixed CVE-2026-78662 and CVE-2026-56855.  reduced dup messages.
 // v1.3.1 8/20/2026 upgrade opensips v3.6.8, fixed GHSA-6v7p-g79w-8964, CVE-2025-47273, CVE-2026-59890.
 // v1.3.0 7/15/2026 lego downloads always latest, split off usrloc db, timeouts, syslog rotates fix, ubuntu 26.04, lego v5, opensips-cli local cert bug workaround
@@ -3851,8 +3852,15 @@ func wizard(Form url.Values, data *dat, wizi int) (retfrorm string, reterr error
 	case 7:
 		// get apikey if already set
 		apikey, _ := get_global("DNSTOKEN")
+		// get DNS type is already set (should be dynu as default)
+		dnstype, _ := get_global("DNSTYPE")
+		custadv := ""
+		if dnstype != "dynu" {
+			custadv = "checked"
+		}
 		// prompt for dnstoken/apikey
-		data.CustomItems = []any{custom{"API Key", template.HTML("<input id='apikey' name='apikey' type='text' value='" + apikey + "'>")}}
+		data.CustomItems = []any{custom{"API Key", template.HTML("<input size='50' id='apikey' name='apikey' type='text' value='" + apikey + "'>")},
+			custom{"Custom/Advanced", template.HTML("<input id='custdns' name='custdns' type='checkbox' value='custdns' " + custadv + " >")}}
 		msg := "You need to sign up with a free Dynamic Domain Name System (DDNS) service.  The tested and supported free provider is Dynu at the "
 		if lynx {
 			msg += "https://dynu.com"
@@ -3863,7 +3871,8 @@ func wizard(Form url.Values, data *dat, wizi int) (retfrorm string, reterr error
 			"Select a different top level domain if desired.  Click add.  You will be prompted to create an account.  Fill out the prompts as needed, making note of your username and password.  " +
 			"Click submit and perform the verifications as needed.  Once verified and logged into Dynu, click the gears in the upper-right of Dynu's web page.  " +
 			"Click \"API Credentials\".  In the list of existing API Credentials, to the right of  \"API Key\", click the view (binoculars) button.  " +
-			"The key will appear as a long string of random characters.  Highlight it and copy it to your clipboard.  Paste it into the prompt of the above dialog.  "
+			"The key will appear as a long string of random characters.  Highlight it and copy it to your clipboard.  Paste it into the prompt of the above dialog.  " +
+			"Check \"Custom/Advanced\" to define a custom DNS service and certificate API, bypassing Dynu DDNS.  "
 		if lynx {
 			msg += "To paste into this SSH session, you may need to right-click.  "
 		}
@@ -3873,15 +3882,61 @@ func wizard(Form url.Values, data *dat, wizi int) (retfrorm string, reterr error
 	case 8:
 		// get dns name if already set
 		dnsname, _ := get_global("DNSNAME")
-		//
+		// get dns cert name if already set
+		dnscertdom, _ := get_global("DNSCERTDOM")
+		// get dns type if already set
+		dnstype, _ := get_global("DNSTYPE")
+		// get custom dns from form
+		custadv := Form.Get("custdns")
+		// get dns apikey from form
 		apikey := Form.Get("apikey")
+		// fall back to cfg file if none
 		if apikey == "" {
 			apikey, _ = get_global("DNSTOKEN")
 		}
 		// blank?
-		if apikey == "" {
+		if apikey == "" && custadv != "custdns" {
 			data.Msgs = append(data.Msgs, template.HTML("Invalid or missing API key.  select \"Next\" to try again."))
 			data.Nextpage = "wizmenu-7"
+			// custom/advanced
+		} else if custadv == "custdns" || dnstype != "dynu" {
+			ip, _ := get_ip()
+			// store the apikey as dnstoken
+			set_global("DNSTOKEN", apikey)
+			// get path to lego env file
+			legoenvpath, _ := get_global("LEGOENV")
+			if legoenvpath == "" {
+				legoenvpath = "/etc/opensips/custdns.txt"
+			}
+			legoenv, err := os.ReadFile(legoenvpath)
+			if err != nil {
+				dualMsg(&data.Msgs, syslog.LOG_ERR, "Error reading "+legoenvpath+". Error: "+err.Error())
+				data.Msgs = append(data.Msgs, template.HTML("Select \"Next\" to try again."))
+				data.Nextpage = "wizmenu-7"
+			} else {
+				// prompt for dnstoken/apikey
+				data.CustomItems = []any{custom{"DNS API Key (aka $DNSTOKEN)", template.HTML("<input readonly size='50' id='apikey' name='apikey' type='text' value='" + apikey + "'>")},
+					custom{"Fully Qualified Domain Name (FQDN)", template.HTML("<input size='50' id='dnsname' name='dnsname' type='text' value='" + dnsname + "'>")},
+					custom{"Certificate Domain Name", template.HTML("<input size='50' id='dnscertdom' name='dnscertdom' type='text' value='" + dnscertdom + "'>")},
+					custom{"DNS Provider", template.HTML("<input size='10' id='dnstype' name='dnstype' type='text' value='" + dnstype + "'>")},
+					custom{"Lego ENV", template.HTML("<textarea rows='10' cols='100' id='legoenv' name='legoenv'>" + string(legoenv) + "</textarea>")}}
+				msg := "The 'DNS API Key' is the API key entered on the previous page.  It can be referenced in 'Lego ENV' as $DNSTOKEN.  " +
+					"Please refer to "
+				if lynx {
+					msg += "https://go-acme.github.io/lego/dns/index.html"
+				} else {
+					msg += "<a href='https://go-acme.github.io/lego/dns/index.html' target='_blank'>Lego's DNS Providers</a>"
+				}
+				msg += " web site for a list of values for 'DNS Provider'.  The 'DNS Provider' value will be passed to the Lego CLI as a flag.<br>" +
+					"At same web site, check details for your 'DNS Provider' and enter the needed Lego environment variables in 'Lego ENV'.<br>" +
+					"Optionally, enter a domian for Certificate Domain Name to generate a SAN wildcard certificate prefixed with '*.'.  If blank or same as FQDN, the " +
+					"certificate with be issued for just the FQDN, no wildcard.<br>" +
+					"<b>Important:</b>  Please set the FQDN record to " + ip.Ipv4.Public + ".  If it is possible for the IP address to change, " +
+					"reference your DNS provider's services for DDNS automation.  MMSGate cannot update the IP address of your custom DNS config.<br>"
+				msg += "Select \"Next\" once you have filled in the needed details."
+				data.Msgs = append(data.Msgs, template.HTML(msg))
+			}
+			// Dynu DNS domain select
 		} else {
 			// get dns names
 			req, err := http.NewRequest("GET", "https://api.dynu.com/v2/dns", nil)
@@ -3950,16 +4005,37 @@ func wizard(Form url.Values, data *dat, wizi int) (retfrorm string, reterr error
 		}
 	// cert intro
 	case 9:
+		// get possible costom values
+		dnstype := Form.Get("dnstype")
+		legoenv := strings.ReplaceAll(Form.Get("legoenv"), "\r", "") + "\n"
 		// get dns name
 		dnsname := Form.Get("dnsname")
 		if dnsname == "" {
 			dnsname, _ = get_global("DNSNAME")
 		}
+		dnscertdom := Form.Get("dnscertdom")
 		// good name
 		if dnsname != "" {
 			// save it
 			set_global("DNSNAME", dnsname)
-			data.Msgs = append(data.Msgs, template.HTML("The DDNS name "+dnsname+" was selected and will be used."))
+			set_global("DNSCERTDOM", dnscertdom)
+			data.Msgs = append(data.Msgs, template.HTML("The DNS name "+dnsname+" was selected and will be used."))
+			// maybe save type and env
+			if dnstype != "" {
+				// save it
+				set_global("DNSTYPE", dnstype)
+			}
+			if legoenv != "" {
+				// get path to lego env file
+				legoenvpath, _ := get_global("LEGOENV")
+				if legoenvpath == "" {
+					legoenvpath = "/etc/opensips/custdns.txt"
+				}
+				err := os.WriteFile(legoenvpath, []byte(legoenv), 0644)
+				if err != nil {
+					dualMsg(&data.Msgs, syslog.LOG_ERR, "Error trying to write to "+legoenvpath+".  Error: "+err.Error())
+				}
+			}
 			// prompt for email address for certs
 			email, _ := get_global("EMAIL")
 			data.CustomItems = []any{custom{"eMail Address", template.HTML("<input id='email' name='email' type='text' value='" + email + "'>")}}
