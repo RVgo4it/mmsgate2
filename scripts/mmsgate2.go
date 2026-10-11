@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.5.1 10/11/2026 Refresh libs and minor bug fix.
 // v1.5.0 10/4/2026 Added custom DNS config.
 // v1.4.0 9/10/2026 Added number blocking.
 // v1.3.2 9/3/2026 fixed CVE-2026-78662 and CVE-2026-56855.  reduced dup messages.
@@ -4025,7 +4026,7 @@ func wizard(Form url.Values, data *dat, wizi int) (retfrorm string, reterr error
 				// save it
 				set_global("DNSTYPE", dnstype)
 			}
-			if legoenv != "" {
+			if legoenv != "\n" {
 				// get path to lego env file
 				legoenvpath, _ := get_global("LEGOENV")
 				if legoenvpath == "" {

@@ -7,6 +7,17 @@ log() {
   echo "$1" | logger -p local6.1 -t $SCR
 }
 
+# some fixed paths
+NGINXSITESENABLED=/etc/opensips/nginx/sites-enabled
+clean_enabled_sites() {
+  for SITE in $(ls $NGINXSITESENABLED); do
+    if [ $SITE != admin ]; then
+      log "Removing $NGINXSITESENABLED/$SITE"
+      sudo rm -r $NGINXSITESENABLED/$SITE
+    fi
+  done
+}
+
 source /etc/opensips/globalcfg.sh
 [ "$DEBUG" == "Y" ] && DBG=1
 
@@ -117,9 +128,18 @@ sudo -i cron
 [ $DBG ] && log "Config CPUs for Nginx"
 sudo NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE=1 /scripts/30-tune-worker-processes.sh
 [ $DBG ] && log "Starting Nginx"
-sudo nginx -c /etc/opensips/nginx/nginx.conf
+for I in 1 2 3 4 5 6; do
+  sudo nginx -c /etc/opensips/nginx/nginx.conf
+  if [ $I == 5 ]; then
+    log "Nginx didn't start x5, cleaning enabled sites."
+    clean_enabled_sites
+  else
+    log "Nginx didn't start, sleeping 5s"
+    sleep 5
+  fi
+done
 
 wait $OPENSIPSPID
 wait $MMSGATEPID
-sleep 3
+sleep 60
 
