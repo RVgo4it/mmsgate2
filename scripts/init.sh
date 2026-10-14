@@ -7,8 +7,21 @@ log() {
   echo "$1" | logger -p local6.1 -t $SCR
 }
 
+source /etc/opensips/globalcfg.sh
+[ "$DEBUG" == "Y" ] && DBG=1
+
+# start rsyslog
+sudo rm /run/rsyslogd.pid
+sudo -i rsyslogd
+sleep 2
+
+echo
+log "Init started!"
+[ $DBG ] && log "Started rsyslog"
+
 # some fixed paths
 NGINXSITESENABLED=/etc/opensips/nginx/sites-enabled
+# for bad site issue causes no admin access
 clean_enabled_sites() {
   for SITE in $(ls $NGINXSITESENABLED); do
     if [ $SITE != admin ]; then
@@ -17,12 +30,6 @@ clean_enabled_sites() {
     fi
   done
 }
-
-source /etc/opensips/globalcfg.sh
-[ "$DEBUG" == "Y" ] && DBG=1
-
-echo
-log "Init started!"
 
 # some initial activity if first run
 [ $DBG ] && log "Starting first_run.sh"
@@ -46,12 +53,6 @@ while [ "$1" != "" ]; do
   if [ "$1" == "--mmsgatedebug" ] ; then MMSGATEOPTS="$MMSGATEOPTS --mmsgate-logger=DEBUG"; fi
   shift
 done
-
-# check for arm32 - opensips bug w/ F_MALLOC
-#ARCH=$(uname -m)
-#if [[ "$ARCH" == armv7l* ]]; then
-#  OPENSIPSOPTS="$OPENSIPSOPTS -a Q_MALLOC"
-#fi
 
 # start opensips
 { DONE=NO
@@ -117,29 +118,28 @@ OPENSIPSPID=$!
 MMSGATEPID=$!
 [ $DBG ] && log "MMSGate loop is PID $MMSGATEPID"
 
-# start rsyslog
-[ $DBG ] && log "Starting rsyslog"
-sudo rm /run/rsyslogd.pid
-sudo -i rsyslogd
 # start cron
 [ $DBG ] && log "Starting cron"
 sudo -i cron
+
 # start nginx web service
 [ $DBG ] && log "Config CPUs for Nginx"
 sudo NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE=1 /scripts/30-tune-worker-processes.sh
 [ $DBG ] && log "Starting Nginx"
 for I in 1 2 3 4 5 6; do
   sudo nginx -c /etc/opensips/nginx/nginx.conf
+  RC=$?
+  [ $RC == 0 ] && break
   if [ $I == 5 ]; then
     log "Nginx didn't start x5, cleaning enabled sites."
     clean_enabled_sites
   else
-    log "Nginx didn't start, sleeping 5s"
-    sleep 5
+    log "Nginx didn't start, RC=$RC, sleeping 30s"
+    sleep 30
   fi
 done
 
 wait $OPENSIPSPID
 wait $MMSGATEPID
-sleep 60
+sleep 5
 

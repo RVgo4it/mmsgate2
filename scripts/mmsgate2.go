@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.5.2 10/14/2026 Minor bug fixes for startup/shutdown.
 // v1.5.1 10/11/2026 Refresh libs and minor bug fix.
 // v1.5.0 10/4/2026 Added custom DNS config.
 // v1.4.0 9/10/2026 Added number blocking.
