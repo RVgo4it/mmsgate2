@@ -11,6 +11,8 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.7.0 11/5/2026 Added authentication for file uploads.  If upgrading from < 1.7.0, reconfig clients and use this command to activate:
+// docker exec mmsgate2 sudo bash -c ". /etc/opensips/globalcfg.sh; gup HTPWFILE Y; /scripts/certs.sh mksite; nginx -s reload;"
 // v1.6.0 10/15/2026 Added automatic switch to MMS for text message over 160 in length.
 // v1.5.2 10/14/2026 Minor bug fixes for startup/shutdown.
 // v1.5.1 10/11/2026 Refresh libs and minor bug fix.
@@ -238,6 +240,8 @@ func init_subacctdb() {
 		// can't go on
 		panic(errors.New("Error creating DB table subacct: " + err.Error()))
 	}
+	// new column 'filepasswd' add if not there, ignote error
+	db.Exec("ALTER TABLE subacct ADD COLUMN filepasswd TEXT;")
 	// new column 'remote' add if not there, ignote error
 	db.Exec("ALTER TABLE subacct ADD COLUMN remote TEXT;")
 	// also internal_extension_location
@@ -362,6 +366,12 @@ func pop_subacctdb() (msg []string) {
 	apiid := os.Getenv("APIID")
 	apipw := os.Getenv("APIPW")
 	dnsname := os.Getenv("DNSNAME")
+	// gen a new .htpasswdfile if true
+	newfilepasswd := false
+	// .htpasswdfile not exist?
+	if _, err := os.Stat("/etc/opensips/nginx/.htpasswdfile"); errors.Is(err, os.ErrNotExist) {
+		newfilepasswd = true
+	}
 	// build messages to return
 	msg = []string{}
 	// got what we need?
@@ -569,7 +579,11 @@ func pop_subacctdb() (msg []string) {
 		return
 	}
 	// delete any sub accts that don't exist any more at voip.ms
-	_, err = db.Exec("DELETE FROM subacct WHERE account NOT IN (SELECT account FROM tsubacct);")
+	sqlrslt, err := db.Exec("DELETE FROM subacct WHERE account NOT IN (SELECT account FROM tsubacct);")
+	row, err := sqlrslt.RowsAffected()
+	if row > 0 {
+		newfilepasswd = true
+	}
 	if err != nil {
 		msg = append(msg, "Delete from sub acct DB table failed: "+err.Error())
 		ml.mylog(syslog.LOG_ERR, "Delete from sub acct DB table failed: "+err.Error())
@@ -583,7 +597,37 @@ func pop_subacctdb() (msg []string) {
 		ml.mylog(syslog.LOG_ERR, "Update sub acct DB table failed: "+err.Error())
 		return
 	}
-	acctrows, err := query2map("SELECT account FROM subacct WHERE uuid IS NULL;")
+	// populate filepasswd values
+	acctrows, err := query2map("SELECT account FROM subacct WHERE filepasswd IS NULL;")
+	if err != nil {
+		msg = append(msg, "Query missing filepasswd sub accts failed: "+err.Error())
+		ml.mylog(syslog.LOG_ERR, "Query missing filepasswd sub accts failed: "+err.Error())
+		return
+	}
+	for _, row := range acctrows {
+		// new pw
+		newfilepasswd = true
+		// make pw for HTTP POST /file
+		passwd := RandStringBytesMaskImprSrcUnsafe(10, false)
+		_, err = db.Exec("UPDATE subacct SET filepasswd = ? WHERE account=?;", passwd, row["account"].(string))
+		if err != nil {
+			ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/filepasswd update: "+err.Error())
+			msg = append(msg, "Error SQL query for filepasswd update: "+err.Error())
+			return
+		}
+	}
+	// any new accounts or removed accounts? build new .htpasswdfile
+	if newfilepasswd {
+		cmdout, err := exec.Command("sudo", "/scripts/filepasswd.sh").Output()
+		if err != nil {
+			msg = append(msg, "/scripts/filepasswd.sh returned error: "+err.Error())
+			ml.mylog(syslog.LOG_ERR, "/scripts/filepasswd.sh returned error: "+err.Error())
+		} else {
+			ml.mylog(syslog.LOG_DEBUG, "/scripts/filepasswd.sh returned: "+string(cmdout))
+		}
+	}
+	// populate uuid values
+	acctrows, err = query2map("SELECT account FROM subacct WHERE uuid IS NULL;")
 	if err != nil {
 		msg = append(msg, "Query missing UUID sub accts failed: "+err.Error())
 		ml.mylog(syslog.LOG_ERR, "Query missing UUID sub accts failed: "+err.Error())
@@ -2014,7 +2058,7 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 	linphone := ""
 	struuid := ""
 	// get info on selected acct
-	query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account=?;"
+	query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc, filepasswd FROM subacct WHERE account=?;"
 	row, err := query2map(query, subacct)
 	if err != nil {
 		ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[0]: "+err.Error())
@@ -2030,9 +2074,9 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 	}
 	// if linphone for push notification, load linphone acct and other associated accts
 	if linphone != "" {
-		query := "SELECT * FROM (SELECT username AS account, password, '' AS callerid, '' AS uuid, '' AS linphone, '31536000' AS max_expiry, domain, '0' as extloc FROM linphone WHERE username=? " +
+		query := "SELECT * FROM (SELECT username AS account, password, '' AS callerid, '' AS uuid, '' AS linphone, '31536000' AS max_expiry, domain, '0' as extloc, '' as filepasswd FROM linphone WHERE username=? " +
 			"UNION " +
-			"SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account!=? AND linphone = ? ) ORDER BY account;"
+			"SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc, filepasswd FROM subacct WHERE account!=? AND linphone = ? ) ORDER BY account;"
 		row, err := query2map(query, linphone, subacct, linphone)
 		if err != nil {
 			ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[1+]: "+err.Error())
@@ -2050,7 +2094,7 @@ func configmenu(Form url.Values, data *dat) (retform string, reterr error) {
 			subacctadd := strings.Trim(Form.Get("cfg-username-"+si), " ")
 			if subacctadd != "" {
 				// look it up
-				query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc FROM subacct WHERE account=?;"
+				query := "SELECT account, password, callerid, uuid, linphone, max_expiry, domain, extloc, filepasswd FROM subacct WHERE account=?;"
 				row, err := query2map(query, subacctadd)
 				if err != nil {
 					ml.mylog(syslog.LOG_ERR, "SQL query for configmenu/subacct[0]: "+err.Error())
@@ -2402,7 +2446,8 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 	// slice of cfg accts just for msgs note
 	cfgaccts := []string{}
 	// loop accts to config, adding/updating an auth_info_* and proxy_* section for each
-	for i, row := range rows {
+	var i int = 0
+	for _, row := range rows {
 		si := strconv.Itoa(i)
 		// handy values
 		account := row["account"].(string)
@@ -2457,6 +2502,26 @@ func gen_config(rows []map[string]any, data *dat, uuid string, linphone string) 
 			for _, ent := range ents {
 				add2xml(secname, ent)
 			}
+		}
+		// next section
+		i++
+	}
+	// loop accts again, adding auth_info_* for file pw
+	for _, row := range rows {
+		si := strconv.Itoa(i)
+		account := row["account"].(string)
+		fpw := row["filepasswd"].(string)
+		if fpw != "" {
+			// clear text password for file realm
+			authinfo := map[string][]Entry{"auth_info_" + si: {{"username", true, account}, {"passwd", true, fpw}, {"realm", true, "file"}}}
+			// config auth_info_* for this acct
+			for secname, ents := range authinfo {
+				for _, ent := range ents {
+					add2xml(secname, ent)
+				}
+			}
+			// next section
+			i++
 		}
 	}
 	// write the XML config file

@@ -15,6 +15,10 @@ if [ "$DNSTYPE" == "" ]; then
   DNSTYPE=dynu
   echo DNSTYPE=dynu | sudo tee -a /etc/opensips/globalcfg.txt
 fi
+if [ "$HTPWFILE" == "" ]; then
+  HTPWFILE=N
+  echo HTPWFILE=N | sudo tee -a /etc/opensips/globalcfg.txt
+fi
 if [ ! -e /etc/opensips/custdns.txt ]; then
   echo 'DYNU_API_KEY=$DNSTOKEN' | sudo tee /etc/opensips/custdns.txt
   sudo chown mmsgate:mmsgate /etc/opensips/custdns.txt

@@ -44,8 +44,8 @@ for SITE in $(ls $NGINXSITESENABLED); do
   fi
 done
 
-# if not already done, create Nginx config
-[ -e $NGINXSITES/$DNSNAME ] || cat > $NGINXSITES/$DNSNAME <<EOF
+# if not already done, or $1 is 'mksite', create Nginx config for site
+if [[ ! -e "$NGINXSITES/$DNSNAME" || "$1" == "mksite" ]]; then [ $DBG ] && log "Making Nginx site $NGINXSITES/$DNSNAME"; cat > "$NGINXSITES/$DNSNAME" <<EOF
 server {
     listen              38443 ssl;
     listen              [::]:38443 ssl;
@@ -62,6 +62,16 @@ server {
     location /admin {
         deny  all;
     }
+$(if [[ "$HTPWFILE" == "Y" ]]; then cat <<EOF2
+    location /file {
+        proxy_pass http://127.0.0.1:38080/file;
+        include proxy_params;
+        auth_basic "file";
+        auth_basic_user_file /etc/opensips/nginx/.htpasswdfile;
+    }
+EOF2
+fi
+)
     location /mmsmedia/ {
                 alias  /data/mmsmedia/;
                 index  index.html;
@@ -72,6 +82,7 @@ server {
     }
 }
 EOF
+fi
 # and enable it
 ln -fs $NGINXSITES/$DNSNAME $NGINXSITESENABLED/$DNSNAME
 
