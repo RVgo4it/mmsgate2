@@ -107,6 +107,7 @@ if [ ! -e $LOCUSERDIR/$LOCUSERCERT ]; then
 
   log "Making local cert"
   mkdir -p $LOCUSERDIR/private
+  cp $LOCCADIR/$LOCCACERT $LOCUSERDIR/$LOCUSERCALIST
   openssl req \
     -new \
     -newkey rsa:4096 \
@@ -141,3 +142,17 @@ if [ ! -e $LOCUSERDIR/$LOCUSERCERT ]; then
 else
   [ $DBG ] && log "Skipping local user cert create, $LOCUSERDIR/$LOCUSERCERT exists."
 fi
+
+# local user CA list not exist?  if not, apply fix
+if [ ! -e $LOCUSERDIR/$LOCUSERCALIST ]; then
+  # fix
+  cp $LOCCADIR/$LOCCACERT $LOCUSERDIR/$LOCUSERCALIST
+  # update the db with new local cert
+  log "Updating tls_mgm table in db"
+  sqlite3 $DBPATH "delete from tls_mgm where domain = 'mmsGate'"
+  sqlite3 $DBPATH "insert into tls_mgm (verify_cert,domain,certificate,private_key,ca_list) values (0,'mmsGate',readfile('$LOCUSERDIR/$LOCUSERCERT'),readfile('$LOCUSERDIR/$LOCUSERKEY'),readfile('$LOCUSERDIR/$LOCUSERCALIST'));"
+  # load the certs
+  log "OpenSIPS reloading certs if already running"
+  opensips-cli -x mi tls_reload
+fi
+

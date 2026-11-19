@@ -11,6 +11,7 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 OF THIS SOFTWARE.
 */
 
+// v1.7.1 11/19/2026 Increased timeouts for TLS and fix for local cert.  
 // v1.7.0 11/5/2026 Added authentication for file uploads.  If upgrading from < 1.7.0, reconfig clients and use this command to activate:
 // docker exec mmsgate2 sudo bash -c ". /etc/opensips/globalcfg.sh; gup HTPWFILE Y; /scripts/certs.sh mksite; nginx -s reload;"
 // v1.6.0 10/15/2026 Added automatic switch to MMS for text message over 160 in length.
